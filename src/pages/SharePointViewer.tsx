@@ -15,6 +15,25 @@ interface ExcelData {
   tubingRegistry: any[];
 }
 
+const parseStoredArray = (value: string | null, key: string) => {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+
+    console.warn(`Cached ${key} is not an array`);
+    return [];
+  } catch (error) {
+    console.warn(`Error parsing cached ${key}:`, error);
+    return [];
+  }
+};
+
 const SharePointViewer: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [excelData, setExcelData] = useState<ExcelData>({
@@ -38,47 +57,33 @@ const SharePointViewer: React.FC = () => {
 
   const loadCachedData = () => {
     try {
-      // Загружаем из localStorage напрямую (не зависим от контекста)
       const cachedClientsData = localStorage.getItem('sharepoint_cached_clients');
       const cachedWorkOrdersData = localStorage.getItem('sharepoint_cached_workorders');
       const cachedTubingData = localStorage.getItem('sharepoint_cached_tubing');
 
-      if (cachedClientsData) {
-        const clients = JSON.parse(cachedClientsData);
-        if (clients.length > 0) {
-          setExcelData(prev => ({
-            ...prev,
-            clients: clients
-          }));
-          console.log('📦 Viewer loaded cached clients:', clients.length);
-        }
+      const clients = parseStoredArray(cachedClientsData, 'clients');
+      const workOrders = parseStoredArray(cachedWorkOrdersData, 'work orders');
+      const tubingRegistry = parseStoredArray(cachedTubingData, 'tubing');
+
+      setExcelData({
+        clients,
+        workOrders,
+        tubingRegistry
+      });
+
+      if (clients.length > 0) {
+        console.log('📦 Viewer loaded cached clients:', clients.length);
+      }
+      if (workOrders.length > 0) {
+        console.log('📦 Viewer loaded cached work orders:', workOrders.length);
+      }
+      if (tubingRegistry.length > 0) {
+        console.log('📦 Viewer loaded cached tubing registry:', tubingRegistry.length);
       }
 
-      if (cachedWorkOrdersData) {
-        const workOrders = JSON.parse(cachedWorkOrdersData);
-        if (workOrders.length > 0) {
-          setExcelData(prev => ({
-            ...prev,
-            workOrders: workOrders
-          }));
-          console.log('📦 Viewer loaded cached work orders:', workOrders.length);
-        }
-      }
-
-      if (cachedTubingData) {
-        const tubingRegistry = JSON.parse(cachedTubingData);
-        if (tubingRegistry.length > 0) {
-          setExcelData(prev => ({
-            ...prev,
-            tubingRegistry: tubingRegistry
-          }));
-          console.log('📦 Viewer loaded cached tubing registry:', tubingRegistry.length);
-        }
-      }
-
-      // Считаем данные загруженными если есть хоть что-то
-      if (cachedClientsData || cachedWorkOrdersData || cachedTubingData) {
-        setDataLoaded(true);
+      const hasData = clients.length > 0 || workOrders.length > 0 || tubingRegistry.length > 0;
+      setDataLoaded(hasData);
+      if (hasData) {
         console.log('✅ SharePoint Viewer ready with cached data');
       }
     } catch (error) {
@@ -114,23 +119,17 @@ const SharePointViewer: React.FC = () => {
 
   // Мгновенное обновление данных при изменении кеша
   useEffect(() => {
-    if (cachedClients.length > 0) {
-      setExcelData(prev => ({ ...prev, clients: cachedClients }));
-    }
-    if (cachedWorkOrders.length > 0) {
-      setExcelData(prev => ({ ...prev, workOrders: cachedWorkOrders }));
-    }
-    
-    // Проверяем tubing данные из localStorage
     const cachedTubingData = localStorage.getItem('sharepoint_cached_tubing');
-    if (cachedTubingData) {
-      try {
-        const tubingRegistry = JSON.parse(cachedTubingData);
-        setExcelData(prev => ({ ...prev, tubingRegistry }));
-      } catch (error) {
-        console.warn('Error parsing cached tubing data:', error);
-      }
-    }
+    const tubingRegistry = parseStoredArray(cachedTubingData, 'tubing');
+
+    setExcelData({
+      clients: cachedClients,
+      workOrders: cachedWorkOrders,
+      tubingRegistry
+    });
+
+    const hasData = cachedClients.length > 0 || cachedWorkOrders.length > 0 || tubingRegistry.length > 0;
+    setDataLoaded(hasData);
   }, [cachedClients, cachedWorkOrders]);
 
   const renderTable = (data: any[], title: string, icon: React.ReactNode) => {

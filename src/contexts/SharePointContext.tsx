@@ -172,19 +172,43 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
       const cachedWorkOrdersData = localStorage.getItem('sharepoint_cached_workorders');
       
       if (cachedClientsData) {
-        const clients = JSON.parse(cachedClientsData);
-        if (clients.length > 0) {
-          setCachedClients(clients);
-          console.log('📦 Context loaded cached clients:', clients.length);
+        try {
+          const clients = JSON.parse(cachedClientsData);
+          if (Array.isArray(clients)) {
+            setCachedClients(clients);
+            if (clients.length > 0) {
+              console.log('📦 Context loaded cached clients:', clients.length);
+            }
+          } else {
+            console.warn('Cached clients data is not an array');
+            setCachedClients([]);
+          }
+        } catch (parseError) {
+          console.error('Error parsing cached clients data:', parseError);
+          setCachedClients([]);
         }
+      } else {
+        setCachedClients([]);
       }
-      
+
       if (cachedWorkOrdersData) {
-        const workOrders = JSON.parse(cachedWorkOrdersData);
-        if (workOrders.length > 0) {
-          setCachedWorkOrders(workOrders);
-          console.log('📦 Context loaded cached work orders:', workOrders.length);
+        try {
+          const workOrders = JSON.parse(cachedWorkOrdersData);
+          if (Array.isArray(workOrders)) {
+            setCachedWorkOrders(workOrders);
+            if (workOrders.length > 0) {
+              console.log('📦 Context loaded cached work orders:', workOrders.length);
+            }
+          } else {
+            console.warn('Cached work orders data is not an array');
+            setCachedWorkOrders([]);
+          }
+        } catch (parseError) {
+          console.error('Error parsing cached work orders data:', parseError);
+          setCachedWorkOrders([]);
         }
+      } else {
+        setCachedWorkOrders([]);
       }
     } catch (error) {
       console.error('Error loading cached data:', error);
@@ -336,8 +360,10 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
     localStorage.removeItem('sharepoint_connection_time');
     localStorage.removeItem('sharepoint_cached_clients');
     localStorage.removeItem('sharepoint_cached_workorders');
+    localStorage.removeItem('sharepoint_cached_tubing');
     localStorage.removeItem('sharepoint_clients_timestamp');
     localStorage.removeItem('sharepoint_workorders_timestamp');
+    localStorage.removeItem('sharepoint_cached_tubing_timestamp');
     localStorage.removeItem('sharepoint_last_refresh');
     
     console.log('SharePoint disconnected and cache cleared (MSAL tokens preserved)');

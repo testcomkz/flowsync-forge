@@ -90,7 +90,13 @@ class AuthService {
       await this.msalInstance.initialize();
       
       // Force login with account selection
-      return await this.login();
+      const silentSuccess = await this.login();
+      if (silentSuccess) {
+        return true;
+      }
+
+      // If there are no active accounts after cache clear, force popup login
+      return await this.forcePopupLogin();
     } catch (error) {
       console.error("Failed to clear cache and relogin:", error);
       return false;
