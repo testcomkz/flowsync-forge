@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Get Tenant ID</title>
+    <script src="https://alcdn.msauth.net/browser/2.32.2/js/msal-browser.min.js"></script>
+</head>
+<body>
+    <h1>SharePoint Tenant ID Detection</h1>
+    <button onclick="login()">Login to get Tenant ID</button>
+    <div id="result"></div>
+
+    <script>
+        const msalConfig = {
+            auth: {
+                clientId: "7c4aabf5-ed57-42e8-a828-506b2f6378da",
+                authority: "https://login.microsoftonline.com/common"
+            }
+        };
+
+        const msalInstance = new msal.PublicClientApplication(msalConfig);
+
+        async function login() {
+            try {
+                const response = await msalInstance.loginPopup({
+                    scopes: ["openid", "profile", "User.Read"]
+                });
+                
+                console.log("Login response:", response);
+                document.getElementById("result").innerHTML = `
+                    <h3>Success!</h3>
+                    <p><strong>Tenant ID:</strong> ${response.account.tenantId}</p>
+                    <p><strong>Username:</strong> ${response.account.username}</p>
+                    <p><strong>Name:</strong> ${response.account.name}</p>
+                    <br>
+                    <p>Update your .env.local with:</p>
+                    <code>VITE_MSAL_TENANT_ID=${response.account.tenantId}</code>
+                `;
+            } catch (error) {
+                console.error("Login failed:", error);
+                document.getElementById("result").innerHTML = `<p style="color:red;">Login failed: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>
