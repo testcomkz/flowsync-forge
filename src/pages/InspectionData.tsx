@@ -20,6 +20,7 @@ interface ArrivedBatchRow {
   client: string;
   wo_no: string;
   batch: string;
+  status: string;
   class_1?: string;
   class_2?: string;
   class_3?: string;
@@ -154,8 +155,9 @@ export default function InspectionData() {
         return;
       }
       const row = item as unknown[];
-      const status = normalizeString(row[statusIndex]).toLowerCase();
-      if (!status.includes("arriv")) {
+      const rawStatus = normalizeString(row[statusIndex]);
+      const normalizedStatus = rawStatus.toLowerCase();
+      if (!normalizedStatus.includes("arriv")) {
         return;
       }
 
@@ -168,6 +170,7 @@ export default function InspectionData() {
         client,
         wo_no,
         batch,
+        status: rawStatus || "Arrived",
         class_1: normalizeString(class1Index === -1 ? "" : row[class1Index]),
         class_2: normalizeString(class2Index === -1 ? "" : row[class2Index]),
         class_3: normalizeString(class3Index === -1 ? "" : row[class3Index]),
@@ -265,15 +268,16 @@ export default function InspectionData() {
       return;
     }
 
-    const base = selectedRow.rattling_qty ?? selectedRow.baseQty ?? 0;
-    setInitialQty(base ?? 0);
+    const base = selectedRow.rattling_qty ?? selectedRow.baseQty ?? null;
+    const hasBase = base != null;
+    setInitialQty(hasBase ? base : 0);
     setClass1(selectedRow.class_1 || "");
     setClass2(selectedRow.class_2 || "");
     setClass3(selectedRow.class_3 || "");
     setRepairValue(selectedRow.repair || "");
     setScrapValue(selectedRow.scrap || "");
     setStageQuantities({
-      rattling: base ? String(base) : "",
+      rattling: hasBase ? String(base) : "",
       external:
         selectedRow.external_qty !== null && selectedRow.external_qty !== undefined
           ? String(selectedRow.external_qty)
@@ -338,19 +342,30 @@ export default function InspectionData() {
     [scrapValues]
   );
 
-  const handleQuantityChange = (stage: StageKey, value: string) => {
-    if (stage === "rattling") {
-      return;
-    }
-
+  const handleQuantityChange = (
+    stage: StageKey,
+    value: string,
+    options?: { allowManualRattling?: boolean }
+  ) => {
     const sanitized = sanitizeDigits(value);
     if (sanitized === "") {
       setStageQuantities(prev => ({ ...prev, [stage]: "" }));
+      if (stage === "rattling") {
+        setInitialQty(0);
+      }
       return;
     }
 
     const numericValue = Number(sanitized);
     if (!Number.isFinite(numericValue)) {
+      return;
+    }
+
+    if (stage === "rattling") {
+      if (options?.allowManualRattling) {
+        setStageQuantities(prev => ({ ...prev, rattling: sanitized }));
+        setInitialQty(numericValue);
+      }
       return;
     }
 
@@ -438,7 +453,9 @@ export default function InspectionData() {
       }
     }
 
-    if (stageNumbers.rattling !== initialQty) {
+    const canEditRattlingQty = selectedRow.rattling_qty == null && selectedRow.baseQty == null;
+
+    if (!canEditRattlingQty && stageNumbers.rattling !== initialQty) {
       toast({
         title: "Ошибка",
         description: "Rattling Qty должно совпадать с количеством труб партии",
@@ -555,15 +572,16 @@ export default function InspectionData() {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label>Client</Label>
-                <Select value={selectedClient} onValueChange={value => setSelectedClient(value)}>
+                <Select
+                  value={selectedClient || undefined}
+                  onValueChange={value => setSelectedClient(value)}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Choose client" />
                   </SelectTrigger>
                   <SelectContent>
                     {availableClients.length === 0 && (
-                      <SelectItem value="" disabled>
-                        No arrived batches
-                      </SelectItem>
+                      <div className="px-2 py-1 text-sm text-muted-foreground">No arrived batches</div>
                     )}
                     {availableClients.map(client => (
                       <SelectItem key={client} value={client}>
@@ -577,7 +595,7 @@ export default function InspectionData() {
               <div className="space-y-2">
                 <Label>Work Order</Label>
                 <Select
-                  value={selectedWorkOrder}
+                  value={selectedWorkOrder || undefined}
                   onValueChange={value => setSelectedWorkOrder(value)}
                   disabled={!selectedClient}
                 >
@@ -586,9 +604,7 @@ export default function InspectionData() {
                   </SelectTrigger>
                   <SelectContent>
                     {availableWorkOrders.length === 0 && (
-                      <SelectItem value="" disabled>
-                        No arrived batches
-                      </SelectItem>
+                      <div className="px-2 py-1 text-sm text-muted-foreground">No arrived batches</div>
                     )}
                     {availableWorkOrders.map(wo => (
                       <SelectItem key={wo} value={wo}>
@@ -602,7 +618,7 @@ export default function InspectionData() {
               <div className="space-y-2">
                 <Label>Batch</Label>
                 <Select
-                  value={selectedBatch}
+                  value={selectedBatch || undefined}
                   onValueChange={value => setSelectedBatch(value)}
                   disabled={!selectedClient || !selectedWorkOrder}
                 >
@@ -611,9 +627,7 @@ export default function InspectionData() {
                   </SelectTrigger>
                   <SelectContent>
                     {availableBatches.length === 0 && (
-                      <SelectItem value="" disabled>
-                        No arrived batches
-                      </SelectItem>
+                      <div className="px-2 py-1 text-sm text-muted-foreground">No arrived batches</div>
                     )}
                     {availableBatches.map(batch => (
                       <SelectItem key={batch.batch} value={batch.batch}>
@@ -628,6 +642,7 @@ export default function InspectionData() {
                 <div className="rounded-lg bg-blue-50 p-4 text-sm text-blue-900">
                   <p className="font-semibold">Batch Info</p>
                   <p>Qty: {initialQty}</p>
+                  <p>Status: {selectedRow.status || "Arrived"}</p>
                 </div>
               )}
             </CardContent>
@@ -685,20 +700,10 @@ export default function InspectionData() {
                     placeholder="0"
                     inputMode="numeric"
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Scrap должен совпадать с суммой скрапов из таблицы ниже ({totalScrap}).
-                  </p>
                 </div>
               </div>
 
               <div className="space-y-4">
-                <div className="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-900">
-                  <p className="font-semibold">Логика расчета скрапа</p>
-                  <p>
-                    Каждый Scrap = (предыдущий этап) – (следующий этап). Например, Rattling Scrap =
-                    Rattling Qty – External Qty.
-                  </p>
-                </div>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -714,9 +719,21 @@ export default function InspectionData() {
                         <TableCell>
                           <Input
                             value={stageQuantities[stage.key]}
-                            onChange={event => handleQuantityChange(stage.key, event.target.value)}
+                            onChange={event =>
+                              handleQuantityChange(stage.key, event.target.value, {
+                                allowManualRattling:
+                                  stage.key === "rattling" &&
+                                  selectedRow != null &&
+                                  selectedRow.rattling_qty == null &&
+                                  selectedRow.baseQty == null
+                              })
+                            }
                             inputMode="numeric"
-                            disabled={stage.key === "rattling"}
+                            disabled={
+                              !selectedRow ||
+                              (stage.key === "rattling" &&
+                                (selectedRow.rattling_qty != null || selectedRow.baseQty != null))
+                            }
                             placeholder="0"
                           />
                         </TableCell>
