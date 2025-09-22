@@ -7,6 +7,7 @@ import TubingForm from "./pages/TubingForm";
 import WOForm from "./pages/WOForm";
 import EditRecords from "./pages/EditRecords";
 import SharePointViewer from "./pages/SharePointViewer";
+import InspectionData from "./pages/InspectionData";
 import "./index.css";
 
 const router = createBrowserRouter([
@@ -29,6 +30,10 @@ const router = createBrowserRouter([
   {
     path: "/sharepoint-viewer",
     element: <SharePointViewer />,
+  },
+  {
+    path: "/inspection-data",
+    element: <InspectionData />,
   },
 ]);
 
