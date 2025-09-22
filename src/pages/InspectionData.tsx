@@ -14,6 +14,7 @@ import { useSharePoint } from "@/contexts/SharePointContext";
 import { useAuth } from "@/contexts/AuthContext";
 
 type StageKey = "rattling" | "external" | "hydro" | "mpi" | "drift" | "emi" | "marking";
+type ScrapKey = "rattling" | "external" | "jetting" | "mpi" | "drift" | "emi";
 
 interface ArrivedBatchRow {
   key: string;
@@ -94,18 +95,19 @@ export default function InspectionData() {
   const [class3, setClass3] = useState("");
   const [repairValue, setRepairValue] = useState("");
   const [scrapValue, setScrapValue] = useState("");
-  const [stageQuantities, setStageQuantities] = useState<Record<StageKey, string>>({
+  const [scrapInputs, setScrapInputs] = useState<Record<ScrapKey, string>>({
     rattling: "",
     external: "",
-    hydro: "",
+    jetting: "",
     mpi: "",
     drift: "",
-    emi: "",
-    marking: ""
+    emi: ""
   });
   const [initialQty, setInitialQty] = useState<number>(0);
   const [processedKeys, setProcessedKeys] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  // track initialization to avoid overwriting user's edits when SharePoint cache refreshes
+  const [initializedRowKey, setInitializedRowKey] = useState<string | null>(null);
 
   const arrivedBatches = useMemo(() => {
     if (!Array.isArray(tubingData) || tubingData.length < 2) {
@@ -120,29 +122,39 @@ export default function InspectionData() {
     const headers = headersRow as unknown[];
     const normalizeHeader = (header: unknown) =>
       header === null || header === undefined ? "" : String(header).trim().toLowerCase();
+    // Normalize header to alphanumeric-only for robust matching: "Rattling Qty" => "rattlingqty"
+    const normalizeKey = (header: unknown) =>
+      (header === null || header === undefined ? "" : String(header).toLowerCase())
+        .replace(/\s+/g, "")
+        .replace(/[_-]+/g, "")
+        .replace(/[^a-z0-9]/g, "");
 
     const findIndex = (predicate: (header: string) => boolean) =>
       headers.findIndex(header => predicate(normalizeHeader(header)));
 
-    const clientIndex = findIndex(header => header.includes("client"));
-    const woIndex = findIndex(header => header.includes("wo"));
-    const batchIndex = findIndex(header => header.includes("batch"));
-    const statusIndex = findIndex(header => header.includes("status"));
-    const baseQtyIndex = findIndex(
-      header => header.includes("qty") && !header.includes("_") && !header.includes("scrap")
-    );
-    const class1Index = findIndex(header => header.includes("class 1") || header.includes("class_1"));
-    const class2Index = findIndex(header => header.includes("class 2") || header.includes("class_2"));
-    const class3Index = findIndex(header => header.includes("class 3") || header.includes("class_3"));
-    const repairIndex = findIndex(header => header.includes("repair"));
-    const scrapIndex = findIndex(header => header === "scrap" || header.endsWith(" scrap"));
-    const rattlingQtyIndex = findIndex(header => header.includes("rattling_qty"));
-    const externalQtyIndex = findIndex(header => header.includes("external_qty"));
-    const hydroQtyIndex = findIndex(header => header.includes("hydro_qty"));
-    const mpiQtyIndex = findIndex(header => header.includes("mpi_qty"));
-    const driftQtyIndex = findIndex(header => header.includes("drift_qty"));
-    const emiQtyIndex = findIndex(header => header.includes("emi_qty"));
-    const markingQtyIndex = findIndex(header => header.includes("marking_qty"));
+    const clientIndex = findIndex(h => normalizeKey(h).includes("client"));
+    const woIndex = findIndex(h => normalizeKey(h).includes("workorder") || h.includes("wo"));
+    const batchIndex = findIndex(h => normalizeKey(h).includes("batch"));
+    const statusIndex = findIndex(h => normalizeKey(h).includes("status"));
+    // Try to find a base Qty column (not stage-specific). Be generous with matching.
+    const baseQtyIndex = findIndex(h => {
+      const k = normalizeKey(h);
+      return k === "qty" || k === "quantity" || (k.includes("qty") && !k.includes("scrap") && !k.includes("rattling") && !k.includes("external") && !k.includes("hydro") && !k.includes("mpi") && !k.includes("drift") && !k.includes("emi") && !k.includes("marking"));
+    });
+    const class1Index = findIndex(h => normalizeKey(h).includes("class1"));
+    const class2Index = findIndex(h => normalizeKey(h).includes("class2"));
+    const class3Index = findIndex(h => normalizeKey(h).includes("class3"));
+    const repairIndex = findIndex(h => normalizeKey(h).includes("repair"));
+    const scrapIndex = findIndex(h => normalizeKey(h) === "scrap" || normalizeKey(h).endsWith("scrap"));
+    const rattlingQtyIndex = findIndex(h => normalizeKey(h).includes("rattlingqty"));
+    const externalQtyIndex = findIndex(h => normalizeKey(h).includes("externalqty"));
+    const hydroQtyIndex = findIndex(h => normalizeKey(h).includes("hydroqty"));
+    const mpiQtyIndex = findIndex(h => normalizeKey(h).includes("mpiqty"));
+    const driftQtyIndex = findIndex(h => normalizeKey(h).includes("driftqty"));
+    const emiQtyIndex = findIndex(h => normalizeKey(h).includes("emiqty"));
+    const markingQtyIndex = findIndex(h => normalizeKey(h).includes("markingqty"));
+    const pipeFromIndex = findIndex(h => normalizeKey(h).includes("pipefrom"));
+    const pipeToIndex = findIndex(h => normalizeKey(h).includes("pipeto"));
 
     if (statusIndex === -1 || clientIndex === -1 || woIndex === -1 || batchIndex === -1) {
       return [] as ArrivedBatchRow[];
@@ -164,6 +176,26 @@ export default function InspectionData() {
       const client = normalizeString(row[clientIndex]);
       const wo_no = normalizeString(row[woIndex]);
       const batch = normalizeString(row[batchIndex]);
+      // Compute a reliable base quantity for the batch:
+      const rattlingBase = rattlingQtyIndex !== -1 ? toNumeric(row[rattlingQtyIndex]) : null;
+      const baseFromQty = baseQtyIndex !== -1 ? toNumeric(row[baseQtyIndex]) : null;
+      const pFrom = pipeFromIndex !== -1 ? toNumeric(row[pipeFromIndex]) : null;
+      const pTo = pipeToIndex !== -1 ? toNumeric(row[pipeToIndex]) : null;
+      const baseFromPipes = pFrom !== null && pTo !== null && pTo >= pFrom ? (pTo - pFrom + 1) : null;
+      // As a final fallback, use the maximum among stage quantities if they are present in the row
+      const stageCandidates: Array<number | null> = [
+        rattlingQtyIndex !== -1 ? toNumeric(row[rattlingQtyIndex]) : null,
+        externalQtyIndex !== -1 ? toNumeric(row[externalQtyIndex]) : null,
+        hydroQtyIndex !== -1 ? toNumeric(row[hydroQtyIndex]) : null,
+        mpiQtyIndex !== -1 ? toNumeric(row[mpiQtyIndex]) : null,
+        driftQtyIndex !== -1 ? toNumeric(row[driftQtyIndex]) : null,
+        emiQtyIndex !== -1 ? toNumeric(row[emiQtyIndex]) : null,
+        markingQtyIndex !== -1 ? toNumeric(row[markingQtyIndex]) : null
+      ];
+      const stageMax = stageCandidates.filter(v => v !== null).length
+        ? Math.max(...(stageCandidates.filter((v): v is number => v !== null)))
+        : null;
+      const computedBase = rattlingBase ?? baseFromQty ?? baseFromPipes ?? stageMax ?? null;
 
       rows.push({
         key: `${client}||${wo_no}||${batch}`,
@@ -176,8 +208,8 @@ export default function InspectionData() {
         class_3: normalizeString(class3Index === -1 ? "" : row[class3Index]),
         repair: normalizeString(repairIndex === -1 ? "" : row[repairIndex]),
         scrap: normalizeString(scrapIndex === -1 ? "" : row[scrapIndex]),
-        baseQty: toNumeric(baseQtyIndex === -1 ? null : row[baseQtyIndex]),
-        rattling_qty: toNumeric(rattlingQtyIndex === -1 ? null : row[rattlingQtyIndex]),
+        baseQty: computedBase,
+        rattling_qty: rattlingBase,
         external_qty: toNumeric(externalQtyIndex === -1 ? null : row[externalQtyIndex]),
         hydro_qty: toNumeric(hydroQtyIndex === -1 ? null : row[hydroQtyIndex]),
         mpi_qty: toNumeric(mpiQtyIndex === -1 ? null : row[mpiQtyIndex]),
@@ -255,256 +287,136 @@ export default function InspectionData() {
       setClass3("");
       setRepairValue("");
       setScrapValue("");
-      setStageQuantities({
-        rattling: "",
-        external: "",
-        hydro: "",
-        mpi: "",
-        drift: "",
-        emi: "",
-        marking: ""
-      });
+      setScrapInputs({ rattling: "", external: "", jetting: "", mpi: "", drift: "", emi: "" });
       setInitialQty(0);
+      setInitializedRowKey(null);
       return;
     }
 
-    const base = selectedRow.rattling_qty ?? selectedRow.baseQty ?? null;
+    // ALWAYS treat general Qty (baseQty) as the source of truth.
+    // Rattling Qty must equal Qty, so we prefer baseQty over rattling_qty if both exist.
+    const base = selectedRow.baseQty ?? selectedRow.rattling_qty ?? null;
     const hasBase = base != null;
-    setInitialQty(hasBase ? base : 0);
-    setClass1(selectedRow.class_1 || "");
-    setClass2(selectedRow.class_2 || "");
-    setClass3(selectedRow.class_3 || "");
-    setRepairValue(selectedRow.repair || "");
-    setScrapValue(selectedRow.scrap || "");
-    setStageQuantities({
-      rattling: hasBase ? String(base) : "",
-      external:
-        selectedRow.external_qty !== null && selectedRow.external_qty !== undefined
-          ? String(selectedRow.external_qty)
-          : "",
-      hydro:
-        selectedRow.hydro_qty !== null && selectedRow.hydro_qty !== undefined
-          ? String(selectedRow.hydro_qty)
-          : "",
-      mpi:
-        selectedRow.mpi_qty !== null && selectedRow.mpi_qty !== undefined
-          ? String(selectedRow.mpi_qty)
-          : "",
-      drift:
-        selectedRow.drift_qty !== null && selectedRow.drift_qty !== undefined
-          ? String(selectedRow.drift_qty)
-          : "",
-      emi:
-        selectedRow.emi_qty !== null && selectedRow.emi_qty !== undefined
-          ? String(selectedRow.emi_qty)
-          : "",
-      marking:
-        selectedRow.marking_qty !== null && selectedRow.marking_qty !== undefined
-          ? String(selectedRow.marking_qty)
-          : ""
-    });
-  }, [selectedRow]);
+    setInitialQty(hasBase ? base! : 0);
+    // Initialize top fields only once per selected row to keep inputs editable
+    if (initializedRowKey !== selectedRow.key) {
+      setClass1(selectedRow.class_1 || "");
+      setClass2(selectedRow.class_2 || "");
+      setClass3(selectedRow.class_3 || "");
+      setRepairValue(selectedRow.repair || "");
+      setScrapValue(selectedRow.scrap || "");
+    }
 
-  const scrapValues = useMemo(() => {
-    const parse = (value: string) => {
-      if (value === "") return null;
-      const num = Number(value);
-      return Number.isFinite(num) ? num : null;
+    const diff = (a: number | null, b: number | null): string => {
+      if (a === null || a === undefined || b === null || b === undefined) return "";
+      const d = a - b;
+      return d >= 0 ? String(d) : "";
     };
 
-    const rattling = parse(stageQuantities.rattling);
-    const external = parse(stageQuantities.external);
-    const hydro = parse(stageQuantities.hydro);
-    const mpi = parse(stageQuantities.mpi);
-    const drift = parse(stageQuantities.drift);
-    const emi = parse(stageQuantities.emi);
-    const marking = parse(stageQuantities.marking);
+    if (initializedRowKey !== selectedRow.key) {
+      setScrapInputs({
+        // Since Rattling Qty must equal Qty, we use the resolved base as the left side.
+        rattling: diff(hasBase ? base : null, selectedRow.external_qty),
+        external: diff(selectedRow.external_qty, selectedRow.hydro_qty),
+        jetting: diff(selectedRow.hydro_qty, selectedRow.mpi_qty),
+        mpi: diff(selectedRow.mpi_qty, selectedRow.drift_qty),
+        drift: diff(selectedRow.drift_qty, selectedRow.emi_qty),
+        emi: diff(selectedRow.emi_qty, selectedRow.marking_qty)
+      });
+      setInitializedRowKey(selectedRow.key);
+    }
+  }, [selectedRow, initializedRowKey]);
 
-    const diff = (prev: number | null, next: number | null) => {
-      if (prev === null || next === null) return null;
-      if (next > prev) return null;
-      return prev - next;
-    };
+  const toNum = (s: string) => (s === "" ? 0 : Number(s));
+  const computedQuantities = useMemo(() => {
+    const r = Number.isFinite(initialQty) ? initialQty : 0;
+    const ext = Math.max(0, r - toNum(scrapInputs.rattling));
+    const hyd = Math.max(0, ext - toNum(scrapInputs.external));
+    const mp = Math.max(0, hyd - toNum(scrapInputs.jetting));
+    const dr = Math.max(0, mp - toNum(scrapInputs.mpi));
+    const em = Math.max(0, dr - toNum(scrapInputs.drift));
+    const mark = Math.max(0, em - toNum(scrapInputs.emi));
+    return { rattling: r, external: ext, hydro: hyd, mpi: mp, drift: dr, emi: em, marking: mark };
+  }, [initialQty, scrapInputs]);
 
+  const scrapNumbers = useMemo(() => {
+    const parseStrict = (v: string) => (v === "" ? null : Number(v));
     return {
-      rattling: diff(rattling, external),
-      external: diff(external, hydro),
-      jetting: diff(hydro, mpi),
-      mpi: diff(mpi, drift),
-      drift: diff(drift, emi),
-      emi: diff(emi, marking)
-    };
-  }, [stageQuantities]);
+      rattling: parseStrict(scrapInputs.rattling),
+      external: parseStrict(scrapInputs.external),
+      jetting: parseStrict(scrapInputs.jetting),
+      mpi: parseStrict(scrapInputs.mpi),
+      drift: parseStrict(scrapInputs.drift),
+      emi: parseStrict(scrapInputs.emi)
+    } as Record<ScrapKey, number | null>;
+  }, [scrapInputs]);
 
-  const totalScrap = useMemo(
-    () =>
-      Object.values(scrapValues).reduce((sum, value) => (value !== null ? sum + value : sum), 0),
-    [scrapValues]
-  );
-
-  const handleQuantityChange = (
-    stage: StageKey,
-    value: string,
-    options?: { allowManualRattling?: boolean }
-  ) => {
+  const totalScrap = useMemo(() => {
+    return (Object.values(scrapInputs) as string[]).reduce((sum, v) => {
+      const n = v === "" ? 0 : Number(v);
+      return Number.isFinite(n) ? sum + n : sum;
+    }, 0);
+  }, [scrapInputs]);
+  const handleScrapChange = (key: ScrapKey, value: string) => {
     const sanitized = sanitizeDigits(value);
-    if (sanitized === "") {
-      setStageQuantities(prev => ({ ...prev, [stage]: "" }));
-      if (stage === "rattling") {
-        setInitialQty(0);
-      }
-      return;
-    }
-
-    const numericValue = Number(sanitized);
-    if (!Number.isFinite(numericValue)) {
-      return;
-    }
-
-    if (stage === "rattling") {
-      if (options?.allowManualRattling) {
-        setStageQuantities(prev => ({ ...prev, rattling: sanitized }));
-        setInitialQty(numericValue);
-      }
-      return;
-    }
-
-    const previousStage = getPreviousStage(stage);
-    if (previousStage) {
-      const previousValue = Number(stageQuantities[previousStage]);
-      if (stageQuantities[previousStage] !== "" && numericValue > previousValue) {
-        toast({
-          title: "Ошибка",
-          description: "Количество на следующем этапе не может превышать предыдущее",
-          variant: "destructive"
-        });
+    const prevQtyMap: Record<ScrapKey, number> = {
+      rattling: computedQuantities.rattling,
+      external: computedQuantities.external,
+      jetting: computedQuantities.hydro,
+      mpi: computedQuantities.mpi,
+      drift: computedQuantities.drift,
+      emi: computedQuantities.emi
+    };
+    const prevQty = prevQtyMap[key] ?? 0;
+    if (sanitized !== "") {
+      const num = Number(sanitized);
+      if (Number.isFinite(num) && num > prevQty) {
+        toast({ title: "Ошибка", description: "Scrap не может превышать количество на текущем этапе", variant: "destructive" });
         return;
       }
     }
-
-    setStageQuantities(prev => ({ ...prev, [stage]: sanitized }));
+    setScrapInputs(prev => ({ ...prev, [key]: sanitized }));
   };
 
   const handleSave = async () => {
-    if (!user) {
-      toast({
-        title: "Ошибка",
-        description: "Пожалуйста, войдите в систему",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    if (!sharePointService || !isConnected) {
-      toast({
-        title: "Ошибка",
-        description: "SharePoint не подключен",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    if (!selectedRow) {
-      toast({
-        title: "Ошибка",
-        description: "Выберите партию для сохранения",
-        variant: "destructive"
-      });
-      return;
-    }
+    if (!user) { toast({ title: "Ошибка", description: "Пожалуйста, войдите в систему", variant: "destructive" }); return; }
+    if (!sharePointService || !isConnected) { toast({ title: "Ошибка", description: "SharePoint не подключен", variant: "destructive" }); return; }
+    if (!selectedRow) { toast({ title: "Ошибка", description: "Выберите партию для сохранения", variant: "destructive" }); return; }
 
     const stageNumbers: Record<StageKey, number> = {
-      rattling: Number(stageQuantities.rattling),
-      external: Number(stageQuantities.external),
-      hydro: Number(stageQuantities.hydro),
-      mpi: Number(stageQuantities.mpi),
-      drift: Number(stageQuantities.drift),
-      emi: Number(stageQuantities.emi),
-      marking: Number(stageQuantities.marking)
+      rattling: computedQuantities.rattling,
+      external: computedQuantities.external,
+      hydro: computedQuantities.hydro,
+      mpi: computedQuantities.mpi,
+      drift: computedQuantities.drift,
+      emi: computedQuantities.emi,
+      marking: computedQuantities.marking
     };
 
     for (const stage of STAGE_ORDER) {
-      const raw = stageQuantities[stage];
-      if (raw === "" || Number.isNaN(stageNumbers[stage])) {
-        toast({
-          title: "Ошибка",
-          description: "Заполните все количества этапов инспекции",
-          variant: "destructive"
-        });
+      if (!Number.isFinite(stageNumbers[stage]) || stageNumbers[stage] < 0) {
+        toast({ title: "Ошибка", description: "Количества этапов вычислены некорректно", variant: "destructive" });
         return;
       }
-      if (stageNumbers[stage] < 0) {
-        toast({
-          title: "Ошибка",
-          description: "Количество не может быть отрицательным",
-          variant: "destructive"
-        });
-        return;
-      }
-
       const prevStage = getPreviousStage(stage);
       if (prevStage && stageNumbers[prevStage] < stageNumbers[stage]) {
-        toast({
-          title: "Ошибка",
-          description: "Количество на следующем этапе не может превышать предыдущее",
-          variant: "destructive"
-        });
+        toast({ title: "Ошибка", description: "Количество на следующем этапе не может превышать предыдущее", variant: "destructive" });
         return;
       }
     }
 
-    const canEditRattlingQty = selectedRow.rattling_qty == null && selectedRow.baseQty == null;
-
-    if (!canEditRattlingQty && stageNumbers.rattling !== initialQty) {
-      toast({
-        title: "Ошибка",
-        description: "Rattling Qty должно совпадать с количеством труб партии",
-        variant: "destructive"
-      });
+    if (stageNumbers.rattling !== initialQty) {
+      toast({ title: "Ошибка", description: "Rattling Qty должно совпадать с количеством труб партии", variant: "destructive" });
       return;
     }
 
     const scrapInput = sanitizeDigits(scrapValue);
-    if (scrapInput === "") {
-      toast({
-        title: "Ошибка",
-        description: "Введите Scrap",
-        variant: "destructive"
-      });
-      return;
-    }
-
+    if (scrapInput === "") { toast({ title: "Ошибка", description: "Введите Scrap", variant: "destructive" }); return; }
     const scrapNumber = Number(scrapInput);
-    if (!Number.isFinite(scrapNumber)) {
-      toast({
-        title: "Ошибка",
-        description: "Некорректное значение Scrap",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    const missingScrap = Object.entries(scrapValues).find(([, value]) => value === null);
-    if (missingScrap) {
-      toast({
-        title: "Ошибка",
-        description: "Проверьте таблицу — разница между этапами заполнена некорректно",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    if (scrapNumber !== totalScrap) {
-      toast({
-        title: "Ошибка",
-        description: "Итоговый Scrap не совпадает с суммой скрапов таблицы",
-        variant: "destructive"
-      });
-      return;
-    }
+    if (!Number.isFinite(scrapNumber)) { toast({ title: "Ошибка", description: "Некорректное значение Scrap", variant: "destructive" }); return; }
+    if (scrapNumber !== totalScrap) { toast({ title: "Ошибка", description: "Итоговый Scrap не совпадает с суммой скрапов таблицы", variant: "destructive" }); return; }
 
     setIsSaving(true);
-
     const success = await sharePointService.updateTubingInspectionData({
       client: selectedRow.client,
       wo_no: selectedRow.wo_no,
@@ -521,38 +433,28 @@ export default function InspectionData() {
       drift_qty: stageNumbers.drift,
       emi_qty: stageNumbers.emi,
       marking_qty: stageNumbers.marking,
-      rattling_scrap_qty: scrapValues.rattling ?? 0,
-      external_scrap_qty: scrapValues.external ?? 0,
-      jetting_scrap_qty: scrapValues.jetting ?? 0,
-      mpi_scrap_qty: scrapValues.mpi ?? 0,
-      drift_scrap_qty: scrapValues.drift ?? 0,
-      emi_scrap_qty: scrapValues.emi ?? 0,
+      rattling_scrap_qty: scrapNumbers.rattling ?? 0,
+      external_scrap_qty: scrapNumbers.external ?? 0,
+      jetting_scrap_qty: scrapNumbers.jetting ?? 0,
+      mpi_scrap_qty: scrapNumbers.mpi ?? 0,
+      drift_scrap_qty: scrapNumbers.drift ?? 0,
+      emi_scrap_qty: scrapNumbers.emi ?? 0,
       status: "Inspection Done"
     });
-
     setIsSaving(false);
-
     if (success) {
-      toast({
-        title: "Успешно",
-        description: "Инспекция сохранена и партия обновлена",
-        variant: "default"
-      });
+      toast({ title: "Успешно", description: "Инспекция сохранена и партия обновлена", variant: "default" });
       setProcessedKeys(prev => (prev.includes(selectedRow.key) ? prev : [...prev, selectedRow.key]));
       setSelectedBatch("");
     } else {
-      toast({
-        title: "Ошибка",
-        description: "Не удалось обновить данные партии",
-        variant: "destructive"
-      });
+      toast({ title: "Ошибка", description: "Не удалось обновить данные партии", variant: "destructive" });
     }
   };
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
-      <div className="container mx-auto px-6 py-8">
+      <div className="container mx-auto px-4 py-6">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <Button variant="outline" onClick={() => navigate("/")} className="flex items-center gap-2">
             <ArrowLeft className="h-4 w-4" />
@@ -564,19 +466,19 @@ export default function InspectionData() {
           </div>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-5">
+        <div className="grid gap-4 lg:grid-cols-5">
           <Card className="lg:col-span-2">
             <CardHeader>
-              <CardTitle className="text-xl font-semibold text-blue-900">Batch Selection</CardTitle>
+              <CardTitle className="text-lg font-semibold text-blue-900">Batch Selection</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label>Client</Label>
+                <Label className="text-sm">Client</Label>
                 <Select
                   value={selectedClient || undefined}
                   onValueChange={value => setSelectedClient(value)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="h-9">
                     <SelectValue placeholder="Choose client" />
                   </SelectTrigger>
                   <SelectContent>
@@ -593,13 +495,13 @@ export default function InspectionData() {
               </div>
 
               <div className="space-y-2">
-                <Label>Work Order</Label>
+                <Label className="text-sm">Work Order</Label>
                 <Select
                   value={selectedWorkOrder || undefined}
                   onValueChange={value => setSelectedWorkOrder(value)}
                   disabled={!selectedClient}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="h-9">
                     <SelectValue placeholder="Choose work order" />
                   </SelectTrigger>
                   <SelectContent>
@@ -616,13 +518,13 @@ export default function InspectionData() {
               </div>
 
               <div className="space-y-2">
-                <Label>Batch</Label>
+                <Label className="text-sm">Batch</Label>
                 <Select
                   value={selectedBatch || undefined}
                   onValueChange={value => setSelectedBatch(value)}
                   disabled={!selectedClient || !selectedWorkOrder}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="h-9">
                     <SelectValue placeholder="Choose arrived batch" />
                   </SelectTrigger>
                   <SelectContent>
@@ -639,18 +541,27 @@ export default function InspectionData() {
               </div>
 
               {selectedRow && (
-                <div className="rounded-lg bg-blue-50 p-4 text-sm text-blue-900">
-                  <p className="font-semibold">Batch Info</p>
-                  <p>Qty: {initialQty}</p>
-                  <p>Status: {selectedRow.status || "Arrived"}</p>
+                <div className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900 flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold">Batch Info</p>
+                    <p>Qty: {initialQty}</p>
+                  </div>
+                  <span className="ml-4 rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
+                    {selectedRow.status || "Arrived"}
+                  </span>
                 </div>
               )}
             </CardContent>
           </Card>
 
           <Card className="lg:col-span-3">
-            <CardHeader>
-              <CardTitle className="text-xl font-semibold text-emerald-900">Inspection Data</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-lg font-semibold text-emerald-900">Inspection Data</CardTitle>
+              {selectedRow && (
+                <span className="rounded bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                  Status: {selectedRow.status || "Arrived"}
+                </span>
+              )}
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid gap-4 md:grid-cols-2">
@@ -661,6 +572,7 @@ export default function InspectionData() {
                     value={class1}
                     onChange={event => setClass1(event.target.value)}
                     placeholder="Enter Class 1"
+                    className="h-9 text-sm"
                   />
                 </div>
                 <div className="space-y-2">
@@ -670,6 +582,7 @@ export default function InspectionData() {
                     value={class2}
                     onChange={event => setClass2(event.target.value)}
                     placeholder="Enter Class 2"
+                    className="h-9 text-sm"
                   />
                 </div>
                 <div className="space-y-2">
@@ -679,6 +592,7 @@ export default function InspectionData() {
                     value={class3}
                     onChange={event => setClass3(event.target.value)}
                     placeholder="Enter Class 3"
+                    className="h-9 text-sm"
                   />
                 </div>
                 <div className="space-y-2">
@@ -689,6 +603,7 @@ export default function InspectionData() {
                     onChange={event => setRepairValue(sanitizeDigits(event.target.value))}
                     placeholder="0"
                     inputMode="numeric"
+                    className="h-9 text-sm"
                   />
                 </div>
                 <div className="space-y-2 md:col-span-2">
@@ -699,6 +614,7 @@ export default function InspectionData() {
                     onChange={event => setScrapValue(sanitizeDigits(event.target.value))}
                     placeholder="0"
                     inputMode="numeric"
+                    className="h-9 text-sm"
                   />
                 </div>
               </div>
@@ -707,9 +623,9 @@ export default function InspectionData() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-1/3">Stage</TableHead>
-                      <TableHead>Qty</TableHead>
-                      <TableHead>Scrap Qty</TableHead>
+                      <TableHead className="w-1/3 text-sm">Stage</TableHead>
+                      <TableHead className="text-sm">Qty</TableHead>
+                      <TableHead className="text-sm">Scrap Qty</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -718,30 +634,20 @@ export default function InspectionData() {
                         <TableCell className="font-medium">{stage.label}</TableCell>
                         <TableCell>
                           <Input
-                            value={stageQuantities[stage.key]}
-                            onChange={event =>
-                              handleQuantityChange(stage.key, event.target.value, {
-                                allowManualRattling:
-                                  stage.key === "rattling" &&
-                                  selectedRow != null &&
-                                  selectedRow.rattling_qty == null &&
-                                  selectedRow.baseQty == null
-                              })
-                            }
-                            inputMode="numeric"
-                            disabled={
-                              !selectedRow ||
-                              (stage.key === "rattling" &&
-                                (selectedRow.rattling_qty != null || selectedRow.baseQty != null))
-                            }
-                            placeholder="0"
+                            value={String(computedQuantities[stage.key] ?? 0)}
+                            disabled
+                            className="h-9 text-sm"
                           />
                         </TableCell>
                         <TableCell>
                           {stage.scrapKey ? (
-                            <span className="font-mono text-sm">
-                              {scrapValues[stage.scrapKey] !== null ? scrapValues[stage.scrapKey] : "—"}
-                            </span>
+                            <Input
+                              value={scrapInputs[stage.scrapKey] ?? ""}
+                              onChange={e => handleScrapChange(stage.scrapKey as ScrapKey, e.target.value)}
+                              inputMode="numeric"
+                              placeholder="0"
+                              className="h-9 text-sm"
+                            />
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
@@ -756,7 +662,7 @@ export default function InspectionData() {
                 <div className="text-sm text-muted-foreground">
                   Итоговый Scrap: <span className="font-semibold text-emerald-700">{totalScrap}</span>
                 </div>
-                <Button onClick={handleSave} disabled={isSaving || !selectedRow}>
+                <Button onClick={handleSave} disabled={isSaving || !selectedRow} className="h-9">
                   {isSaving ? "Saving..." : "Save"}
                 </Button>
               </div>
