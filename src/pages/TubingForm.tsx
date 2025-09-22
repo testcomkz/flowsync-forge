@@ -22,22 +22,10 @@ export default function TubingForm() {
     qty: "",
     pipe_from: "",
     pipe_to: "",
-    class_1: "",
-    class_2: "",
-    class_3: "",
-    repair: "",
-    scrap: "",
+    rack: "",
+    status: "Arrived",
     start_date: "",
-    end_date: "",
-    rattling_qty: "",
-    external_qty: "",
-    hydro_qty: "",
-    mpi_qty: "",
-    drift_qty: "",
-    emi_qty: "",
-    marking_qty: "",
-    act_no_oper: "",
-    act_date: ""
+    end_date: ""
   });
 
   const [availableClients, setAvailableClients] = useState<string[]>([]);
@@ -272,36 +260,6 @@ export default function TubingForm() {
     }
   }, [nextBatch]);
 
-  const validateInspectionQuantities = (): boolean => {
-    if (!formData.qty) return true;
-    
-    const totalQty = parseInt(formData.qty);
-    const inspectionFields = [
-      { name: 'Rattling Qty', value: formData.rattling_qty },
-      { name: 'External Qty', value: formData.external_qty },
-      { name: 'Hydro Qty', value: formData.hydro_qty },
-      { name: 'MPI Qty', value: formData.mpi_qty },
-      { name: 'Drift Qty', value: formData.drift_qty },
-      { name: 'EMI Qty', value: formData.emi_qty },
-      { name: 'Marking Qty', value: formData.marking_qty }
-    ];
-
-    for (const field of inspectionFields) {
-      if (field.value && !isNaN(parseInt(field.value))) {
-        const qty = parseInt(field.value);
-        if (qty > totalQty) {
-          toast({
-            title: "❌ Ошибка валидации",
-            description: `${field.name} (${qty}) не может быть больше общего количества труб (${totalQty})`,
-            variant: "destructive",
-          });
-          return false;
-        }
-      }
-    }
-    return true;
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -339,10 +297,10 @@ export default function TubingForm() {
     }
 
     // Validate required fields
-    if (!formData.client || !formData.wo_no || !formData.qty) {
+    if (!formData.client || !formData.wo_no || !formData.qty || !formData.rack) {
       toast({
         title: "Ошибка валидации",
-        description: "Заполните клиента, Work Order и количество",
+        description: "Заполните клиента, Work Order, количество и выберите Rack",
         variant: "destructive",
       });
       return;
@@ -374,11 +332,6 @@ export default function TubingForm() {
 
     const batchToUse = currentBatchLabel;
 
-    // Validate inspection quantities
-    if (!validateInspectionQuantities()) {
-      return;
-    }
-
     setIsLoading(true);
     console.log('📤 Submitting tubing record with batch:', batchToUse);
     console.log('📋 Full form data being sent:', {
@@ -388,7 +341,11 @@ export default function TubingForm() {
       diameter: formData.diameter,
       qty: formData.qty,
       pipe_from: formData.pipe_from,
-      pipe_to: formData.pipe_to
+      pipe_to: formData.pipe_to,
+      rack: formData.rack,
+      status: formData.status,
+      start_date: formData.start_date,
+      end_date: formData.end_date
     });
     
     try {
@@ -401,22 +358,10 @@ export default function TubingForm() {
         qty: formData.qty,
         pipe_from: formData.pipe_from,
         pipe_to: formData.pipe_to,
-        class_1: formData.class_1,
-        class_2: formData.class_2,
-        class_3: formData.class_3,
-        repair: formData.repair,
-        scrap: formData.scrap,
+        rack: formData.rack,
+        status: formData.status,
         start_date: formData.start_date,
-        end_date: formData.end_date,
-        rattling_qty: formData.rattling_qty || "0",
-        external_qty: formData.external_qty || "0",
-        hydro_qty: formData.hydro_qty || "0",
-        mpi_qty: formData.mpi_qty || "0",
-        drift_qty: formData.drift_qty || "0",
-        emi_qty: formData.emi_qty || "0",
-        marking_qty: formData.marking_qty || "0",
-        act_no_oper: formData.act_no_oper,
-        act_date: formData.act_date
+        end_date: formData.end_date
       });
       
       if (success) {
@@ -444,22 +389,10 @@ export default function TubingForm() {
           qty: "",
           pipe_from: "",
           pipe_to: "",
-          class_1: "",
-          class_2: "",
-          class_3: "",
-          repair: "",
-          scrap: "",
+          rack: "",
+          status: "Arrived",
           start_date: "",
-          end_date: "",
-          rattling_qty: "",
-          external_qty: "",
-          hydro_qty: "",
-          mpi_qty: "",
-          drift_qty: "",
-          emi_qty: "",
-          marking_qty: "",
-          act_no_oper: "",
-          act_date: ""
+          end_date: ""
         });
       } else {
         toast({
@@ -500,6 +433,8 @@ export default function TubingForm() {
         next.batch = '';
         next.pipe_from = '';
         next.pipe_to = '';
+        next.rack = '';
+        next.status = 'Arrived';
         setNextBatch('');
         setAvailableDiameters([]);
         setLastPipeTo(0);
@@ -510,6 +445,7 @@ export default function TubingForm() {
         next.batch = '';
         next.pipe_from = '';
         next.pipe_to = '';
+        next.rack = '';
         setNextBatch('');
         setLastPipeTo(0);
       }
@@ -646,59 +582,45 @@ export default function TubingForm() {
                 </div>
               </div>
 
-              {/* Classification */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <Label htmlFor="class_1">Class 1</Label>
-                  <Input
-                    id="class_1"
-                    value={formData.class_1}
-                    onChange={(e) => handleInputChange("class_1", e.target.value)}
-                    placeholder="Class 1"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="class_2">Class 2</Label>
-                  <Input
-                    id="class_2"
-                    value={formData.class_2}
-                    onChange={(e) => handleInputChange("class_2", e.target.value)}
-                    placeholder="Class 2"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="class_3">Class 3</Label>
-                  <Input
-                    id="class_3"
-                    value={formData.class_3}
-                    onChange={(e) => handleInputChange("class_3", e.target.value)}
-                    placeholder="Class 3"
-                  />
-                </div>
-              </div>
-
-              {/* Repair and Scrap */}
+              {/* Rack and Status */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="repair">Repair</Label>
-                  <Input
-                    id="repair"
-                    value={formData.repair}
-                    onChange={(e) => handleInputChange("repair", e.target.value)}
-                    placeholder="Repair"
-                  />
+                  <Label htmlFor="rack">Rack</Label>
+                  <Select
+                    value={formData.rack}
+                    onValueChange={(value) => handleInputChange("rack", value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select rack" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: 7 }).map((_, index) => {
+                        const rackLabel = `Rack-${index + 1}`;
+                        return (
+                          <SelectItem key={rackLabel} value={rackLabel}>
+                            {rackLabel}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div>
-                  <Label htmlFor="scrap">Scrap</Label>
-                  <Input
-                    id="scrap"
-                    value={formData.scrap}
-                    onChange={(e) => handleInputChange("scrap", e.target.value)}
-                    placeholder="Scrap"
-                  />
+                  <Label htmlFor="status">Status</Label>
+                  <Select
+                    value={formData.status}
+                    onValueChange={(value) => handleInputChange("status", value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Arrived">Arrived</SelectItem>
+                      <SelectItem value="Ins. Done">Ins. Done</SelectItem>
+                      <SelectItem value="Completed">Completed</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 
@@ -721,109 +643,6 @@ export default function TubingForm() {
                     type="date"
                     value={formData.end_date}
                     onChange={(e) => handleInputChange("end_date", e.target.value)}
-                  />
-                </div>
-              </div>
-
-              {/* Inspection Quantities */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
-                  <Label htmlFor="rattling_qty">Rattling Qty</Label>
-                  <Input
-                    id="rattling_qty"
-                    type="number"
-                    value={formData.rattling_qty}
-                    onChange={(e) => handleInputChange("rattling_qty", e.target.value)}
-                    placeholder="0"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="external_qty">External Qty</Label>
-                  <Input
-                    id="external_qty"
-                    type="number"
-                    value={formData.external_qty}
-                    onChange={(e) => handleInputChange("external_qty", e.target.value)}
-                    placeholder="0"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="hydro_qty">Hydro Qty</Label>
-                  <Input
-                    id="hydro_qty"
-                    type="number"
-                    value={formData.hydro_qty}
-                    onChange={(e) => handleInputChange("hydro_qty", e.target.value)}
-                    placeholder="0"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="mpi_qty">MPI Qty</Label>
-                  <Input
-                    id="mpi_qty"
-                    type="number"
-                    value={formData.mpi_qty}
-                    onChange={(e) => handleInputChange("mpi_qty", e.target.value)}
-                    placeholder="0"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="drift_qty">Drift Qty</Label>
-                  <Input
-                    id="drift_qty"
-                    type="number"
-                    value={formData.drift_qty}
-                    onChange={(e) => handleInputChange("drift_qty", e.target.value)}
-                    placeholder="0"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="emi_qty">EMI Qty</Label>
-                  <Input
-                    id="emi_qty"
-                    type="number"
-                    value={formData.emi_qty}
-                    onChange={(e) => handleInputChange("emi_qty", e.target.value)}
-                    placeholder="0"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="marking_qty">Marking Qty</Label>
-                  <Input
-                    id="marking_qty"
-                    type="number"
-                    value={formData.marking_qty}
-                    onChange={(e) => handleInputChange("marking_qty", e.target.value)}
-                    placeholder="0"
-                  />
-                </div>
-              </div>
-
-              {/* Activity Information */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="act_no_oper">Activity Number/Operator</Label>
-                  <Input
-                    id="act_no_oper"
-                    value={formData.act_no_oper}
-                    onChange={(e) => handleInputChange("act_no_oper", e.target.value)}
-                    placeholder="Activity number or operator"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="act_date">Activity Date</Label>
-                  <Input
-                    id="act_date"
-                    type="date"
-                    value={formData.act_date}
-                    onChange={(e) => handleInputChange("act_date", e.target.value)}
                   />
                 </div>
               </div>
