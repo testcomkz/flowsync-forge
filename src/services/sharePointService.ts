@@ -1171,12 +1171,6 @@ export class SharePointService {
     drift_qty?: number;
     emi_qty?: number;
     marking_qty?: number;
-    rattling_scrap_qty?: number;
-    external_scrap_qty?: number;
-    jetting_scrap_qty?: number;
-    mpi_scrap_qty?: number;
-    drift_scrap_qty?: number;
-    emi_scrap_qty?: number;
     status?: string;
   }): Promise<boolean> {
     try {
@@ -1295,31 +1289,6 @@ export class SharePointService {
         const c = canonical ?? header;
         return header.includes('marking_qty') || c.includes('marking_qty');
       }, data.marking_qty ?? '');
-
-      applyValue((header, canonical) => {
-        const c = canonical ?? header;
-        return header.includes('rattling_scrap_qty') || c.includes('rattling_scrap_qty');
-      }, data.rattling_scrap_qty ?? '');
-      applyValue((header, canonical) => {
-        const c = canonical ?? header;
-        return header.includes('external_scrap_qty') || c.includes('external_scrap_qty');
-      }, data.external_scrap_qty ?? '');
-      applyValue((header, canonical) => {
-        const c = canonical ?? header;
-        return header.includes('jetting_scrap_qty') || c.includes('jetting_scrap_qty') || c.includes('hydro_scrap_qty');
-      }, data.jetting_scrap_qty ?? '');
-      applyValue((header, canonical) => {
-        const c = canonical ?? header;
-        return header.includes('mpi_scrap_qty') || c.includes('mpi_scrap_qty');
-      }, data.mpi_scrap_qty ?? '');
-      applyValue((header, canonical) => {
-        const c = canonical ?? header;
-        return header.includes('drift_scrap_qty') || c.includes('drift_scrap_qty');
-      }, data.drift_scrap_qty ?? '');
-      applyValue((header, canonical) => {
-        const c = canonical ?? header;
-        return header.includes('emi_scrap_qty') || c.includes('emi_scrap_qty');
-      }, data.emi_scrap_qty ?? '');
 
       const startColLetters = this.indexToColLetters(meta.startCol);
       const endColLetters = this.indexToColLetters(meta.startCol + usedWidth - 1);

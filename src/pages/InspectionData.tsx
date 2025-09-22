@@ -395,18 +395,6 @@ export default function InspectionData() {
     return { rattling: r, external: ext, hydro: hyd, mpi: mp, drift: dr, emi: em, marking: mark };
   }, [initialQty, scrapInputs]);
 
-  const scrapNumbers = useMemo(() => {
-    const parseStrict = (v: string) => (v === "" ? null : Number(v));
-    return {
-      rattling: parseStrict(scrapInputs.rattling),
-      external: parseStrict(scrapInputs.external),
-      jetting: parseStrict(scrapInputs.jetting),
-      mpi: parseStrict(scrapInputs.mpi),
-      drift: parseStrict(scrapInputs.drift),
-      emi: parseStrict(scrapInputs.emi)
-    } as Record<ScrapKey, number | null>;
-  }, [scrapInputs]);
-
   const totalScrap = useMemo(() => {
     return (Object.values(scrapInputs) as string[]).reduce((sum, v) => {
       const n = v === "" ? 0 : Number(v);
@@ -500,12 +488,6 @@ export default function InspectionData() {
       drift_qty: stageNumbers.drift,
       emi_qty: stageNumbers.emi,
       marking_qty: stageNumbers.marking,
-      rattling_scrap_qty: scrapNumbers.rattling ?? 0,
-      external_scrap_qty: scrapNumbers.external ?? 0,
-      jetting_scrap_qty: scrapNumbers.jetting ?? 0,
-      mpi_scrap_qty: scrapNumbers.mpi ?? 0,
-      drift_scrap_qty: scrapNumbers.drift ?? 0,
-      emi_scrap_qty: scrapNumbers.emi ?? 0,
       status: "Inspection Done"
     });
     setIsSaving(false);
