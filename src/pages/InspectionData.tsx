@@ -27,6 +27,8 @@ interface ArrivedBatchRow {
   class_3?: string;
   repair?: string;
   scrap?: string;
+  start_date?: string;
+  end_date?: string;
   baseQty: number | null;
   rattling_qty: number | null;
   external_qty: number | null;
@@ -77,6 +79,39 @@ const toNumeric = (value: unknown): number | null => {
 
 const sanitizeDigits = (value: string) => value.replace(/[^0-9]/g, "");
 
+const toDateInputValue = (value: unknown) => {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const excelEpoch = Date.UTC(1899, 11, 30);
+    const millis = excelEpoch + value * 86400000;
+    return new Date(millis).toISOString().slice(0, 10);
+  }
+
+  const stringValue = String(value).trim();
+  if (!stringValue) return "";
+  const isoMatch = stringValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+  }
+
+  const numericMatch = stringValue.match(/^\d+(?:\.\d+)?$/);
+  if (numericMatch) {
+    const numeric = Number(stringValue);
+    if (Number.isFinite(numeric)) {
+      const excelEpoch = Date.UTC(1899, 11, 30);
+      const millis = excelEpoch + Math.floor(numeric) * 86400000;
+      return new Date(millis).toISOString().slice(0, 10);
+    }
+  }
+
+  const parsed = new Date(stringValue);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+
+  return "";
+};
+
 const getPreviousStage = (stage: StageKey) => {
   const index = STAGE_ORDER.indexOf(stage);
   if (index <= 0) return null;
@@ -99,6 +134,8 @@ export default function InspectionData() {
   const [class3, setClass3] = useState("");
   const [repairValue, setRepairValue] = useState("");
   const [scrapValue, setScrapValue] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [scrapInputs, setScrapInputs] = useState<Record<ScrapKey, string>>({
     rattling: "",
     external: "",
@@ -150,6 +187,8 @@ export default function InspectionData() {
     const class3Index = findIndex(h => normalizeKey(h).includes("class3"));
     const repairIndex = findIndex(h => normalizeKey(h).includes("repair"));
     const scrapIndex = findIndex(h => normalizeKey(h) === "scrap" || normalizeKey(h).endsWith("scrap"));
+    const startDateIndex = findIndex(h => normalizeKey(h).includes("startdate"));
+    const endDateIndex = findIndex(h => normalizeKey(h).includes("enddate"));
     const rattlingQtyIndex = findIndex(h => normalizeKey(h).includes("rattlingqty"));
     const externalQtyIndex = findIndex(h => normalizeKey(h).includes("externalqty"));
     const hydroQtyIndex = findIndex(h => normalizeKey(h).includes("hydroqty"));
@@ -212,6 +251,8 @@ export default function InspectionData() {
         class_3: normalizeString(class3Index === -1 ? "" : row[class3Index]),
         repair: normalizeString(repairIndex === -1 ? "" : row[repairIndex]),
         scrap: normalizeString(scrapIndex === -1 ? "" : row[scrapIndex]),
+        start_date: normalizeString(startDateIndex === -1 ? "" : row[startDateIndex]),
+        end_date: normalizeString(endDateIndex === -1 ? "" : row[endDateIndex]),
         baseQty: computedBase,
         rattling_qty: rattlingBase,
         external_qty: toNumeric(externalQtyIndex === -1 ? null : row[externalQtyIndex]),
@@ -301,6 +342,8 @@ export default function InspectionData() {
       setClass3(selectedRow.class_3 || "");
       setRepairValue(selectedRow.repair || "");
       setScrapValue(selectedRow.scrap || "");
+      setStartDate(toDateInputValue(selectedRow.start_date));
+      setEndDate(toDateInputValue(selectedRow.end_date));
     }
 
     const diff = (a: number | null, b: number | null): string => {
@@ -333,6 +376,8 @@ export default function InspectionData() {
     setClass3("");
     setRepairValue("");
     setScrapValue("");
+    setStartDate("");
+    setEndDate("");
     setScrapInputs({ rattling: "", external: "", jetting: "", mpi: "", drift: "", emi: "" });
     setInitialQty(0);
     setInitializedRowKey(null);
@@ -427,6 +472,15 @@ export default function InspectionData() {
     if (!Number.isFinite(scrapNumber)) { toast({ title: "Ошибка", description: "Некорректное значение Scrap", variant: "destructive" }); return; }
     if (scrapNumber !== totalScrap) { toast({ title: "Ошибка", description: "Итоговый Scrap не совпадает с суммой скрапов таблицы", variant: "destructive" }); return; }
 
+    if (!startDate) { toast({ title: "Ошибка", description: "Выберите Start Date", variant: "destructive" }); return; }
+    if (!endDate) { toast({ title: "Ошибка", description: "Выберите End Date", variant: "destructive" }); return; }
+    if (!Number.isNaN(Date.parse(startDate)) && !Number.isNaN(Date.parse(endDate))) {
+      if (new Date(startDate) > new Date(endDate)) {
+        toast({ title: "Ошибка", description: "End Date не может быть раньше Start Date", variant: "destructive" });
+        return;
+      }
+    }
+
     setIsSaving(true);
     const success = await sharePointService.updateTubingInspectionData({
       client: selectedRow.client,
@@ -437,6 +491,8 @@ export default function InspectionData() {
       class_3: class3,
       repair: sanitizeDigits(repairValue) || "0",
       scrap: scrapNumber,
+      start_date: startDate,
+      end_date: endDate,
       rattling_qty: stageNumbers.rattling,
       external_qty: stageNumbers.external,
       hydro_qty: stageNumbers.hydro,
@@ -606,22 +662,42 @@ export default function InspectionData() {
                     className="h-9 text-sm"
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="repair">Repair</Label>
-                  <Input
-                    id="repair"
-                    value={repairValue}
-                    onChange={event => setRepairValue(sanitizeDigits(event.target.value))}
-                    placeholder="0"
-                    inputMode="numeric"
-                    className="h-9 text-sm"
-                  />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="scrap">Scrap</Label>
-                  <Input
-                    id="scrap"
-                    value={scrapValue}
+              <div className="space-y-2">
+                <Label htmlFor="repair">Repair</Label>
+                <Input
+                  id="repair"
+                  value={repairValue}
+                  onChange={event => setRepairValue(sanitizeDigits(event.target.value))}
+                  placeholder="0"
+                  inputMode="numeric"
+                  className="h-9 text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="startDate">Start Date</Label>
+                <Input
+                  id="startDate"
+                  type="date"
+                  value={startDate}
+                  onChange={event => setStartDate(event.target.value)}
+                  className="h-9 text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="endDate">End Date</Label>
+                <Input
+                  id="endDate"
+                  type="date"
+                  value={endDate}
+                  onChange={event => setEndDate(event.target.value)}
+                  className="h-9 text-sm"
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="scrap">Scrap</Label>
+                <Input
+                  id="scrap"
+                  value={scrapValue}
                     onChange={event => setScrapValue(sanitizeDigits(event.target.value))}
                     placeholder="0"
                     inputMode="numeric"

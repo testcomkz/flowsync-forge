@@ -664,44 +664,12 @@ export class SharePointService {
       const usedInfo = await this.getUsedRangeInfo('tubing');
       const startColIdx = usedInfo?.meta?.startCol ?? 1; // 1-based
       const startRow = usedInfo?.meta?.startRow ?? 1; // 1-based
-      // Используем полную ширину usedRange (она может быть шире headers)
-      const usedWidth = usedInfo?.meta ? (usedInfo.meta.endCol - usedInfo.meta.startCol + 1) : headers.length;
-      const startColLetters = this.indexToColLetters(startColIdx);
-      const endColLetters = this.indexToColLetters(startColIdx + usedWidth - 1);
 
       // Абсолютный номер строки в Excel для позиции вставки (включая смещение usedRange)
       const absoluteInsertRow = startRow + (insertPosition - 1);
 
-      // Если вставляем в конец, просто добавляем в следующую пустую строку
-      if (insertPosition > currentData.length) {
-        const appendRow = startRow + currentData.length; // следующая пустая строка после usedRange
-        const range = `${startColLetters}${appendRow}:${endColLetters}${appendRow}`;
-        console.log(`📍 Appending tubing record to end at range: ${range}`);
-        // Нормализуем ширину строки под usedRange
-        const normalizeRow = (row: any[]) => {
-          const r = Array.isArray(row) ? [...row] : [];
-          while (r.length < usedWidth) r.push('');
-          if (r.length > usedWidth) r.length = usedWidth;
-          return r.map(cell => (cell === null || cell === undefined || cell === '') ? '' : String(cell).trim());
-        };
-        const cleanedData = [normalizeRow(newRowData)];
-        const ok = await this.writeExcelData('tubing', range, cleanedData);
-        if (ok) {
-          console.log(`✅ Tubing record appended successfully!`);
-          localStorage.removeItem('sharepoint_cached_tubing');
-          localStorage.removeItem('sharepoint_cache_timestamp_tubing');
-        } else {
-          console.log(`❌ Failed to append tubing record`);
-        }
-        return ok;
-      }
-
-      // Иначе нужно сдвинуть существующие строки вниз на одну позицию
-      console.log(`📍 Inserting at logical position ${insertPosition} (absolute row ${absoluteInsertRow}). Will shift rows down.`);
-      const rowsToShift = currentData.slice(insertPosition - 1); // данные начиная с строки вставки
-
-      // 1) Вставляем физическую пустую строку на нужном месте
-      const newRowRange = `${startColLetters}${absoluteInsertRow}:${endColLetters}${absoluteInsertRow}`;
+      // Всегда вставляем полноценную строку, чтобы формулы из таблицы корректно протягивались
+      console.log(`📍 Inserting at logical position ${insertPosition} (absolute row ${absoluteInsertRow}). Will shift rows down if needed.`);
       const rowAddress = `${absoluteInsertRow}:${absoluteInsertRow}`; // вставка целой строки
       console.log(`➕ Inserting full row at: ${rowAddress}`);
       const inserted = await this.insertRowAt('tubing', rowAddress);
@@ -709,19 +677,57 @@ export class SharePointService {
         console.warn('⚠️ Row insert failed, fallback to writing directly (may risk overlap)');
       }
 
-      // 2) Записываем новую строку в освободившийся диапазон
-      console.log(`📝 Writing new tubing row to range: ${newRowRange}`);
-      const normalizeRow = (row: any[]) => {
-        const r = Array.isArray(row) ? [...row] : [];
-        while (r.length < usedWidth) r.push('');
-        if (r.length > usedWidth) r.length = usedWidth;
-        return r.map(cell => (cell === null || cell === undefined || cell === '') ? '' : String(cell).trim());
+      // Записываем данные только в те колонки, где действительно есть значения,
+      // чтобы не перетирать формулы пустыми значениями
+      const sanitizeCell = (cell: any) => {
+        if (cell === null || cell === undefined) return '';
+        if (typeof cell === 'string') return cell.trim();
+        return cell;
       };
-      const cleanedNewRow = [normalizeRow(newRowData)];
-      const writeNewRowSuccess = await this.writeExcelData('tubing', newRowRange, cleanedNewRow);
-      if (!writeNewRowSuccess) {
-        console.log('❌ Failed to write new tubing row');
-        return false;
+
+      const segments: { start: number; end: number; values: any[] }[] = [];
+      let currentSegment: { start: number; end: number; values: any[] } | null = null;
+
+      newRowData.forEach((value, index) => {
+        const hasValue = !(value === null || value === undefined || (typeof value === 'string' && value.trim() === ''));
+        if (!hasValue) {
+          currentSegment = null;
+          return;
+        }
+
+        if (!currentSegment) {
+          currentSegment = { start: index, end: index, values: [sanitizeCell(value)] };
+          segments.push(currentSegment);
+          return;
+        }
+
+        if (index === currentSegment.end + 1) {
+          currentSegment.end = index;
+          currentSegment.values.push(sanitizeCell(value));
+          return;
+        }
+
+        currentSegment = { start: index, end: index, values: [sanitizeCell(value)] };
+        segments.push(currentSegment);
+      });
+
+      console.log(`🧮 Prepared ${segments.length} data segments for tubing insertion`);
+
+      for (const segment of segments) {
+        const segmentStartCol = this.indexToColLetters(startColIdx + segment.start);
+        const segmentEndCol = this.indexToColLetters(startColIdx + segment.end);
+        const segmentRange = `${segmentStartCol}${absoluteInsertRow}:${segmentEndCol}${absoluteInsertRow}`;
+        const segmentValues = [segment.values.map(sanitizeCell)];
+        console.log(`📝 Writing tubing segment to ${segmentRange} with ${segment.values.length} values`);
+        const writeSegmentSuccess = await this.writeExcelData('tubing', segmentRange, segmentValues);
+        if (!writeSegmentSuccess) {
+          console.log(`❌ Failed to write tubing data segment at ${segmentRange}`);
+          return false;
+        }
+      }
+
+      if (segments.length === 0) {
+        console.log('ℹ️ No explicit values provided for the new tubing row; formulas remain untouched.');
       }
 
       console.log(`✅ Successfully inserted tubing for client ${client}, WO ${woNo} at absolute row ${absoluteInsertRow}`);
@@ -1156,6 +1162,8 @@ export class SharePointService {
     class_3?: string;
     repair?: string;
     scrap?: string | number;
+    start_date?: string;
+    end_date?: string;
     rattling_qty?: number;
     external_qty?: number;
     hydro_qty?: number;
@@ -1186,8 +1194,17 @@ export class SharePointService {
           ? ''
           : String(value).trim().toLowerCase();
 
-      const findColumn = (matcher: (header: string) => boolean) =>
-        headersRow.findIndex(header => matcher(normalize(header)));
+      const canonicalize = (header: string) =>
+        header
+          .replace(/[\s-]+/g, '_')
+          .replace(/_{2,}/g, '_');
+
+      const findColumn = (matcher: (header: string, canonical?: string) => boolean) =>
+        headersRow.findIndex(header => {
+          const normalizedHeader = normalize(header);
+          const canonicalHeader = canonicalize(normalizedHeader);
+          return matcher(normalizedHeader, canonicalHeader);
+        });
 
       const clientIndex = findColumn(header => header.includes('client'));
       const woIndex = findColumn(header => header.includes('wo'));
@@ -1222,7 +1239,7 @@ export class SharePointService {
       while (targetRow.length < usedWidth) targetRow.push('');
       if (targetRow.length > usedWidth) targetRow.length = usedWidth;
 
-      const applyValue = (predicate: (header: string) => boolean, value: unknown) => {
+      const applyValue = (predicate: (header: string, canonical?: string) => boolean, value: unknown) => {
         const columnIndex = findColumn(predicate);
         if (columnIndex !== -1) {
           targetRow[columnIndex] = value ?? '';
@@ -1234,28 +1251,75 @@ export class SharePointService {
       applyValue(header => header.includes('class 3') || header.includes('class_3'), data.class_3);
       applyValue(header => header.includes('repair'), data.repair);
       applyValue(header => header.includes('status'), data.status ?? 'Inspection Done');
+      applyValue((header, canonical) => {
+        const c = canonical ?? header;
+        return header.includes('start date') || c.includes('start_date');
+      }, data.start_date ?? '');
+      applyValue((header, canonical) => {
+        const c = canonical ?? header;
+        return header.includes('end date') || c.includes('end_date');
+      }, data.end_date ?? '');
       applyValue(
         header => header.includes('scrap') && !header.includes('scrap_qty'),
         data.scrap ?? ''
       );
 
       applyValue(
-        header => header.includes('rattling_qty') && !header.includes('scrap'),
+        (header, canonical) => {
+          const c = canonical ?? header;
+          return (header.includes('rattling_qty') || c.includes('rattling_qty')) && !header.includes('scrap');
+        },
         data.rattling_qty ?? ''
       );
-      applyValue(header => header.includes('external_qty'), data.external_qty ?? '');
-      applyValue(header => header.includes('hydro_qty'), data.hydro_qty ?? '');
-      applyValue(header => header.includes('mpi_qty'), data.mpi_qty ?? '');
-      applyValue(header => header.includes('drift_qty'), data.drift_qty ?? '');
-      applyValue(header => header.includes('emi_qty'), data.emi_qty ?? '');
-      applyValue(header => header.includes('marking_qty'), data.marking_qty ?? '');
+      applyValue((header, canonical) => {
+        const c = canonical ?? header;
+        return header.includes('external_qty') || c.includes('external_qty');
+      }, data.external_qty ?? '');
+      applyValue((header, canonical) => {
+        const c = canonical ?? header;
+        return header.includes('hydro_qty') || c.includes('hydro_qty') || c.includes('jetting_qty');
+      }, data.hydro_qty ?? '');
+      applyValue((header, canonical) => {
+        const c = canonical ?? header;
+        return header.includes('mpi_qty') || c.includes('mpi_qty');
+      }, data.mpi_qty ?? '');
+      applyValue((header, canonical) => {
+        const c = canonical ?? header;
+        return header.includes('drift_qty') || c.includes('drift_qty');
+      }, data.drift_qty ?? '');
+      applyValue((header, canonical) => {
+        const c = canonical ?? header;
+        return header.includes('emi_qty') || c.includes('emi_qty');
+      }, data.emi_qty ?? '');
+      applyValue((header, canonical) => {
+        const c = canonical ?? header;
+        return header.includes('marking_qty') || c.includes('marking_qty');
+      }, data.marking_qty ?? '');
 
-      applyValue(header => header.includes('rattling_scrap_qty'), data.rattling_scrap_qty ?? '');
-      applyValue(header => header.includes('external_scrap_qty'), data.external_scrap_qty ?? '');
-      applyValue(header => header.includes('jetting_scrap_qty'), data.jetting_scrap_qty ?? '');
-      applyValue(header => header.includes('mpi_scrap_qty'), data.mpi_scrap_qty ?? '');
-      applyValue(header => header.includes('drift_scrap_qty'), data.drift_scrap_qty ?? '');
-      applyValue(header => header.includes('emi_scrap_qty'), data.emi_scrap_qty ?? '');
+      applyValue((header, canonical) => {
+        const c = canonical ?? header;
+        return header.includes('rattling_scrap_qty') || c.includes('rattling_scrap_qty');
+      }, data.rattling_scrap_qty ?? '');
+      applyValue((header, canonical) => {
+        const c = canonical ?? header;
+        return header.includes('external_scrap_qty') || c.includes('external_scrap_qty');
+      }, data.external_scrap_qty ?? '');
+      applyValue((header, canonical) => {
+        const c = canonical ?? header;
+        return header.includes('jetting_scrap_qty') || c.includes('jetting_scrap_qty') || c.includes('hydro_scrap_qty');
+      }, data.jetting_scrap_qty ?? '');
+      applyValue((header, canonical) => {
+        const c = canonical ?? header;
+        return header.includes('mpi_scrap_qty') || c.includes('mpi_scrap_qty');
+      }, data.mpi_scrap_qty ?? '');
+      applyValue((header, canonical) => {
+        const c = canonical ?? header;
+        return header.includes('drift_scrap_qty') || c.includes('drift_scrap_qty');
+      }, data.drift_scrap_qty ?? '');
+      applyValue((header, canonical) => {
+        const c = canonical ?? header;
+        return header.includes('emi_scrap_qty') || c.includes('emi_scrap_qty');
+      }, data.emi_scrap_qty ?? '');
 
       const startColLetters = this.indexToColLetters(meta.startCol);
       const endColLetters = this.indexToColLetters(meta.startCol + usedWidth - 1);
