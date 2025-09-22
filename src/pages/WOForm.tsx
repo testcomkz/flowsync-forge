@@ -193,8 +193,7 @@ export default function WOForm() {
           if (sharePointService && refreshDataInBackground) {
             console.log('🟦 Auto Update Data: clearing last refresh and triggering background refresh');
             localStorage.removeItem('sharepoint_last_refresh');
-            // Fire and forget to avoid blocking the form UI
-            refreshDataInBackground(sharePointService).catch(err => console.warn('Auto update failed:', err));
+            await refreshDataInBackground(sharePointService);
           }
         } catch (e) {
           console.warn('Auto Update Data encountered an error:', e);
