@@ -572,15 +572,16 @@ export default function InspectionData() {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label>Client</Label>
-                <Select value={selectedClient} onValueChange={value => setSelectedClient(value)}>
+                <Select
+                  value={selectedClient || undefined}
+                  onValueChange={value => setSelectedClient(value)}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Choose client" />
                   </SelectTrigger>
                   <SelectContent>
                     {availableClients.length === 0 && (
-                      <SelectItem value="" disabled>
-                        No arrived batches
-                      </SelectItem>
+                      <div className="px-2 py-1 text-sm text-muted-foreground">No arrived batches</div>
                     )}
                     {availableClients.map(client => (
                       <SelectItem key={client} value={client}>
@@ -594,7 +595,7 @@ export default function InspectionData() {
               <div className="space-y-2">
                 <Label>Work Order</Label>
                 <Select
-                  value={selectedWorkOrder}
+                  value={selectedWorkOrder || undefined}
                   onValueChange={value => setSelectedWorkOrder(value)}
                   disabled={!selectedClient}
                 >
@@ -603,9 +604,7 @@ export default function InspectionData() {
                   </SelectTrigger>
                   <SelectContent>
                     {availableWorkOrders.length === 0 && (
-                      <SelectItem value="" disabled>
-                        No arrived batches
-                      </SelectItem>
+                      <div className="px-2 py-1 text-sm text-muted-foreground">No arrived batches</div>
                     )}
                     {availableWorkOrders.map(wo => (
                       <SelectItem key={wo} value={wo}>
@@ -619,7 +618,7 @@ export default function InspectionData() {
               <div className="space-y-2">
                 <Label>Batch</Label>
                 <Select
-                  value={selectedBatch}
+                  value={selectedBatch || undefined}
                   onValueChange={value => setSelectedBatch(value)}
                   disabled={!selectedClient || !selectedWorkOrder}
                 >
@@ -628,9 +627,7 @@ export default function InspectionData() {
                   </SelectTrigger>
                   <SelectContent>
                     {availableBatches.length === 0 && (
-                      <SelectItem value="" disabled>
-                        No arrived batches
-                      </SelectItem>
+                      <div className="px-2 py-1 text-sm text-muted-foreground">No arrived batches</div>
                     )}
                     {availableBatches.map(batch => (
                       <SelectItem key={batch.batch} value={batch.batch}>
