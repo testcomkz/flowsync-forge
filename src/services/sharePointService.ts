@@ -507,9 +507,6 @@ export class SharePointService {
       const startRow = usedInfo?.meta?.startRow ?? 1; // 1-based
       // Используем полную ширину usedRange, т.к. она может быть шире, чем длина headers
       const usedWidth = usedInfo?.meta ? (usedInfo.meta.endCol - usedInfo.meta.startCol + 1) : headers.length;
-      const startColLetters = this.indexToColLetters(startColIdx);
-      const endColLetters = this.indexToColLetters(startColIdx + usedWidth - 1);
-
       // Абсолютный номер строки в Excel для позиции вставки (включая смещение usedRange)
       const absoluteInsertRow = startRow + (insertPosition - 1);
 
@@ -665,67 +662,64 @@ export class SharePointService {
       const startColIdx = usedInfo?.meta?.startCol ?? 1; // 1-based
       const startRow = usedInfo?.meta?.startRow ?? 1; // 1-based
       // Используем полную ширину usedRange (она может быть шире headers)
-      const usedWidth = usedInfo?.meta ? (usedInfo.meta.endCol - usedInfo.meta.startCol + 1) : headers.length;
-      const startColLetters = this.indexToColLetters(startColIdx);
-      const endColLetters = this.indexToColLetters(startColIdx + usedWidth - 1);
-
       // Абсолютный номер строки в Excel для позиции вставки (включая смещение usedRange)
       const absoluteInsertRow = startRow + (insertPosition - 1);
 
-      // Если вставляем в конец, просто добавляем в следующую пустую строку
+      let targetRowNumber = absoluteInsertRow;
+      // Если вставляем в конец, используем следующую пустую строку
       if (insertPosition > currentData.length) {
-        const appendRow = startRow + currentData.length; // следующая пустая строка после usedRange
-        const range = `${startColLetters}${appendRow}:${endColLetters}${appendRow}`;
-        console.log(`📍 Appending tubing record to end at range: ${range}`);
-        // Нормализуем ширину строки под usedRange
-        const normalizeRow = (row: any[]) => {
-          const r = Array.isArray(row) ? [...row] : [];
-          while (r.length < usedWidth) r.push('');
-          if (r.length > usedWidth) r.length = usedWidth;
-          return r.map(cell => (cell === null || cell === undefined || cell === '') ? '' : String(cell).trim());
-        };
-        const cleanedData = [normalizeRow(newRowData)];
-        const ok = await this.writeExcelData('tubing', range, cleanedData);
-        if (ok) {
-          console.log(`✅ Tubing record appended successfully!`);
-          localStorage.removeItem('sharepoint_cached_tubing');
-          localStorage.removeItem('sharepoint_cache_timestamp_tubing');
-        } else {
-          console.log(`❌ Failed to append tubing record`);
+        targetRowNumber = startRow + currentData.length;
+        console.log(`📍 Appending tubing record to end at row ${targetRowNumber}`);
+      } else {
+        console.log(`📍 Inserting at logical position ${insertPosition} (absolute row ${absoluteInsertRow}). Will shift rows down.`);
+        const rowAddress = `${absoluteInsertRow}:${absoluteInsertRow}`;
+        console.log(`➕ Inserting full row at: ${rowAddress}`);
+        const inserted = await this.insertRowAt('tubing', rowAddress);
+        if (!inserted) {
+          console.warn('⚠️ Row insert failed, fallback to writing directly (may risk overlap)');
         }
-        return ok;
       }
 
-      // Иначе нужно сдвинуть существующие строки вниз на одну позицию
-      console.log(`📍 Inserting at logical position ${insertPosition} (absolute row ${absoluteInsertRow}). Will shift rows down.`);
-      const rowsToShift = currentData.slice(insertPosition - 1); // данные начиная с строки вставки
-
-      // 1) Вставляем физическую пустую строку на нужном месте
-      const newRowRange = `${startColLetters}${absoluteInsertRow}:${endColLetters}${absoluteInsertRow}`;
-      const rowAddress = `${absoluteInsertRow}:${absoluteInsertRow}`; // вставка целой строки
-      console.log(`➕ Inserting full row at: ${rowAddress}`);
-      const inserted = await this.insertRowAt('tubing', rowAddress);
-      if (!inserted) {
-        console.warn('⚠️ Row insert failed, fallback to writing directly (may risk overlap)');
-      }
-
-      // 2) Записываем новую строку в освободившийся диапазон
-      console.log(`📝 Writing new tubing row to range: ${newRowRange}`);
-      const normalizeRow = (row: any[]) => {
-        const r = Array.isArray(row) ? [...row] : [];
-        while (r.length < usedWidth) r.push('');
-        if (r.length > usedWidth) r.length = usedWidth;
-        return r.map(cell => (cell === null || cell === undefined || cell === '') ? '' : String(cell).trim());
+      const shouldWriteCell = (value: any) => {
+        if (value === null || value === undefined) return false;
+        if (typeof value === 'string') {
+          return value.trim() !== '';
+        }
+        return true;
       };
-      const cleanedNewRow = [normalizeRow(newRowData)];
-      const writeNewRowSuccess = await this.writeExcelData('tubing', newRowRange, cleanedNewRow);
-      if (!writeNewRowSuccess) {
-        console.log('❌ Failed to write new tubing row');
-        return false;
+
+      const updates = newRowData
+        .map((value, idx) => ({ value, idx }))
+        .filter(update => shouldWriteCell(update.value));
+
+      if (updates.length === 0) {
+        console.log('ℹ️ No explicit values to write for new tubing row, preserving formulas.');
       }
 
-      console.log(`✅ Successfully inserted tubing for client ${client}, WO ${woNo} at absolute row ${absoluteInsertRow}`);
-      // Очистим кэш, чтобы форсировать обновление данных
+      const writeGroups: { startIdx: number; endIdx: number; values: any[] }[] = [];
+      updates.forEach(update => {
+        const lastGroup = writeGroups[writeGroups.length - 1];
+        if (lastGroup && update.idx === lastGroup.endIdx + 1) {
+          lastGroup.endIdx = update.idx;
+          lastGroup.values.push(update.value);
+        } else {
+          writeGroups.push({ startIdx: update.idx, endIdx: update.idx, values: [update.value] });
+        }
+      });
+
+      for (const group of writeGroups) {
+        const startCol = startColIdx + group.startIdx;
+        const endCol = startColIdx + group.endIdx;
+        const range = `${this.indexToColLetters(startCol)}${targetRowNumber}:${this.indexToColLetters(endCol)}${targetRowNumber}`;
+        console.log(`📝 Writing tubing data to range ${range}`);
+        const ok = await this.writeExcelData('tubing', range, [group.values]);
+        if (!ok) {
+          console.log(`❌ Failed to write tubing data to range ${range}`);
+          return false;
+        }
+      }
+
+      console.log(`✅ Successfully inserted tubing for client ${client}, WO ${woNo} at absolute row ${targetRowNumber}`);
       localStorage.removeItem('sharepoint_cached_tubing');
       localStorage.removeItem('sharepoint_cache_timestamp_tubing');
       return true;
@@ -1169,6 +1163,8 @@ export class SharePointService {
     mpi_scrap_qty?: number;
     drift_scrap_qty?: number;
     emi_scrap_qty?: number;
+    start_date?: string;
+    end_date?: string;
     status?: string;
   }): Promise<boolean> {
     try {
@@ -1185,13 +1181,15 @@ export class SharePointService {
         value === null || value === undefined
           ? ''
           : String(value).trim().toLowerCase();
+      const simplify = (value: unknown) =>
+        normalize(value).replace(/[\s_-]+/g, '');
 
-      const findColumn = (matcher: (header: string) => boolean) =>
-        headersRow.findIndex(header => matcher(normalize(header)));
+      const findColumn = (matcher: (normalized: string, simplified: string) => boolean) =>
+        headersRow.findIndex(header => matcher(normalize(header), simplify(header)));
 
-      const clientIndex = findColumn(header => header.includes('client'));
-      const woIndex = findColumn(header => header.includes('wo'));
-      const batchIndex = findColumn(header => header.includes('batch'));
+      const clientIndex = findColumn((normalized, simplified) => normalized.includes('client') || simplified.includes('client'));
+      const woIndex = findColumn((normalized, simplified) => normalized.includes('wo') || simplified.includes('workorder'));
+      const batchIndex = findColumn((normalized, simplified) => normalized.includes('batch') || simplified.includes('batch'));
 
       if (clientIndex === -1 || woIndex === -1 || batchIndex === -1) {
         console.error('❌ Required columns (client/wo/batch) not found in tubing sheet');
@@ -1222,40 +1220,55 @@ export class SharePointService {
       while (targetRow.length < usedWidth) targetRow.push('');
       if (targetRow.length > usedWidth) targetRow.length = usedWidth;
 
-      const applyValue = (predicate: (header: string) => boolean, value: unknown) => {
+      const applyValue = (
+        predicate: (normalized: string, simplified: string) => boolean,
+        value: unknown
+      ) => {
         const columnIndex = findColumn(predicate);
         if (columnIndex !== -1) {
           targetRow[columnIndex] = value ?? '';
         }
       };
 
-      applyValue(header => header.includes('class 1') || header.includes('class_1'), data.class_1);
-      applyValue(header => header.includes('class 2') || header.includes('class_2'), data.class_2);
-      applyValue(header => header.includes('class 3') || header.includes('class_3'), data.class_3);
-      applyValue(header => header.includes('repair'), data.repair);
-      applyValue(header => header.includes('status'), data.status ?? 'Inspection Done');
       applyValue(
-        header => header.includes('scrap') && !header.includes('scrap_qty'),
+        (normalized, simplified) =>
+          normalized.includes('class 1') || normalized.includes('class_1') || simplified.includes('class1'),
+        data.class_1
+      );
+      applyValue(
+        (normalized, simplified) =>
+          normalized.includes('class 2') || normalized.includes('class_2') || simplified.includes('class2'),
+        data.class_2
+      );
+      applyValue(
+        (normalized, simplified) =>
+          normalized.includes('class 3') || normalized.includes('class_3') || simplified.includes('class3'),
+        data.class_3
+      );
+      applyValue((normalized, simplified) => normalized.includes('repair') || simplified.includes('repair'), data.repair);
+      applyValue((normalized, simplified) => normalized.includes('status') || simplified.includes('status'), data.status ?? 'Inspection Done');
+      applyValue(
+        (normalized, simplified) =>
+          (normalized.includes('scrap') || simplified.includes('scrap')) && !simplified.includes('scrapqty'),
         data.scrap ?? ''
       );
 
-      applyValue(
-        header => header.includes('rattling_qty') && !header.includes('scrap'),
-        data.rattling_qty ?? ''
-      );
-      applyValue(header => header.includes('external_qty'), data.external_qty ?? '');
-      applyValue(header => header.includes('hydro_qty'), data.hydro_qty ?? '');
-      applyValue(header => header.includes('mpi_qty'), data.mpi_qty ?? '');
-      applyValue(header => header.includes('drift_qty'), data.drift_qty ?? '');
-      applyValue(header => header.includes('emi_qty'), data.emi_qty ?? '');
-      applyValue(header => header.includes('marking_qty'), data.marking_qty ?? '');
+      applyValue((_, simplified) => simplified.includes('rattlingqty') && !simplified.includes('scrap'), data.rattling_qty ?? '');
+      applyValue((_, simplified) => simplified.includes('externalqty'), data.external_qty ?? '');
+      applyValue((_, simplified) => simplified.includes('hydroqty') || simplified.includes('jettingqty'), data.hydro_qty ?? '');
+      applyValue((_, simplified) => simplified.includes('mpiqty'), data.mpi_qty ?? '');
+      applyValue((_, simplified) => simplified.includes('driftqty'), data.drift_qty ?? '');
+      applyValue((_, simplified) => simplified.includes('emiqty'), data.emi_qty ?? '');
+      applyValue((_, simplified) => simplified.includes('markingqty'), data.marking_qty ?? '');
 
-      applyValue(header => header.includes('rattling_scrap_qty'), data.rattling_scrap_qty ?? '');
-      applyValue(header => header.includes('external_scrap_qty'), data.external_scrap_qty ?? '');
-      applyValue(header => header.includes('jetting_scrap_qty'), data.jetting_scrap_qty ?? '');
-      applyValue(header => header.includes('mpi_scrap_qty'), data.mpi_scrap_qty ?? '');
-      applyValue(header => header.includes('drift_scrap_qty'), data.drift_scrap_qty ?? '');
-      applyValue(header => header.includes('emi_scrap_qty'), data.emi_scrap_qty ?? '');
+      applyValue((_, simplified) => simplified.includes('rattlingscrapqty'), data.rattling_scrap_qty ?? '');
+      applyValue((_, simplified) => simplified.includes('externalscrapqty'), data.external_scrap_qty ?? '');
+      applyValue((_, simplified) => simplified.includes('jettingscrapqty'), data.jetting_scrap_qty ?? '');
+      applyValue((_, simplified) => simplified.includes('mpiscrapqty'), data.mpi_scrap_qty ?? '');
+      applyValue((_, simplified) => simplified.includes('driftscrapqty'), data.drift_scrap_qty ?? '');
+      applyValue((_, simplified) => simplified.includes('emiscrapqty'), data.emi_scrap_qty ?? '');
+      applyValue((_, simplified) => simplified.includes('startdate'), data.start_date ?? '');
+      applyValue((_, simplified) => simplified.includes('enddate'), data.end_date ?? '');
 
       const startColLetters = this.indexToColLetters(meta.startCol);
       const endColLetters = this.indexToColLetters(meta.startCol + usedWidth - 1);

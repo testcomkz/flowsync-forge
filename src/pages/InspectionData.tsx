@@ -35,6 +35,8 @@ interface ArrivedBatchRow {
   drift_qty: number | null;
   emi_qty: number | null;
   marking_qty: number | null;
+  start_date?: string;
+  end_date?: string;
 }
 
 const STAGE_ORDER: StageKey[] = [
@@ -67,11 +69,35 @@ const normalizeString = (value: unknown) =>
 
 const toNumeric = (value: unknown): number | null => {
   if (value === null || value === undefined) return null;
-  const num = Number(String(value).replace(/[^0-9.-]/g, ""));
+  const sanitized = String(value).replace(/[^0-9.-]/g, "");
+  if (!sanitized || /^[.-]+$/.test(sanitized)) {
+    return null;
+  }
+  const num = Number(sanitized);
   return Number.isFinite(num) ? num : null;
 };
 
 const sanitizeDigits = (value: string) => value.replace(/[^0-9]/g, "");
+
+const toDateInputValue = (value: string | null | undefined) => {
+  if (!value) return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const europeanMatch = trimmed.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+  if (europeanMatch) {
+    const [, day, month, year] = europeanMatch;
+    return `${year.padStart(4, "0")}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) {
+    const yyyy = String(parsed.getFullYear()).padStart(4, "0");
+    const mm = String(parsed.getMonth() + 1).padStart(2, "0");
+    const dd = String(parsed.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return "";
+};
 
 const getPreviousStage = (stage: StageKey) => {
   const index = STAGE_ORDER.indexOf(stage);
@@ -106,6 +132,8 @@ export default function InspectionData() {
   const [initialQty, setInitialQty] = useState<number>(0);
   const [processedKeys, setProcessedKeys] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   // track initialization to avoid overwriting user's edits when SharePoint cache refreshes
   const [initializedRowKey, setInitializedRowKey] = useState<string | null>(null);
 
@@ -155,6 +183,8 @@ export default function InspectionData() {
     const markingQtyIndex = findIndex(h => normalizeKey(h).includes("markingqty"));
     const pipeFromIndex = findIndex(h => normalizeKey(h).includes("pipefrom"));
     const pipeToIndex = findIndex(h => normalizeKey(h).includes("pipeto"));
+    const startDateIndex = findIndex(h => normalizeKey(h).includes("startdate"));
+    const endDateIndex = findIndex(h => normalizeKey(h).includes("enddate"));
 
     if (statusIndex === -1 || clientIndex === -1 || woIndex === -1 || batchIndex === -1) {
       return [] as ArrivedBatchRow[];
@@ -215,7 +245,9 @@ export default function InspectionData() {
         mpi_qty: toNumeric(mpiQtyIndex === -1 ? null : row[mpiQtyIndex]),
         drift_qty: toNumeric(driftQtyIndex === -1 ? null : row[driftQtyIndex]),
         emi_qty: toNumeric(emiQtyIndex === -1 ? null : row[emiQtyIndex]),
-        marking_qty: toNumeric(markingQtyIndex === -1 ? null : row[markingQtyIndex])
+        marking_qty: toNumeric(markingQtyIndex === -1 ? null : row[markingQtyIndex]),
+        start_date: normalizeString(startDateIndex === -1 ? "" : row[startDateIndex]),
+        end_date: normalizeString(endDateIndex === -1 ? "" : row[endDateIndex])
       });
     });
 
@@ -282,14 +314,6 @@ export default function InspectionData() {
 
   useEffect(() => {
     if (!selectedRow) {
-      setClass1("");
-      setClass2("");
-      setClass3("");
-      setRepairValue("");
-      setScrapValue("");
-      setScrapInputs({ rattling: "", external: "", jetting: "", mpi: "", drift: "", emi: "" });
-      setInitialQty(0);
-      setInitializedRowKey(null);
       return;
     }
 
@@ -305,6 +329,8 @@ export default function InspectionData() {
       setClass3(selectedRow.class_3 || "");
       setRepairValue(selectedRow.repair || "");
       setScrapValue(selectedRow.scrap || "");
+      setStartDate(toDateInputValue(selectedRow.start_date));
+      setEndDate(toDateInputValue(selectedRow.end_date));
     }
 
     const diff = (a: number | null, b: number | null): string => {
@@ -326,6 +352,23 @@ export default function InspectionData() {
       setInitializedRowKey(selectedRow.key);
     }
   }, [selectedRow, initializedRowKey]);
+
+  useEffect(() => {
+    if (selectedBatch) {
+      return;
+    }
+
+    setClass1("");
+    setClass2("");
+    setClass3("");
+    setRepairValue("");
+    setScrapValue("");
+    setScrapInputs({ rattling: "", external: "", jetting: "", mpi: "", drift: "", emi: "" });
+    setInitialQty(0);
+    setInitializedRowKey(null);
+    setStartDate("");
+    setEndDate("");
+  }, [selectedBatch]);
 
   const toNum = (s: string) => (s === "" ? 0 : Number(s));
   const computedQuantities = useMemo(() => {
@@ -382,6 +425,8 @@ export default function InspectionData() {
     if (!user) { toast({ title: "Ошибка", description: "Пожалуйста, войдите в систему", variant: "destructive" }); return; }
     if (!sharePointService || !isConnected) { toast({ title: "Ошибка", description: "SharePoint не подключен", variant: "destructive" }); return; }
     if (!selectedRow) { toast({ title: "Ошибка", description: "Выберите партию для сохранения", variant: "destructive" }); return; }
+    if (!startDate) { toast({ title: "Ошибка", description: "Укажите Start Date", variant: "destructive" }); return; }
+    if (!endDate) { toast({ title: "Ошибка", description: "Укажите End Date", variant: "destructive" }); return; }
 
     const stageNumbers: Record<StageKey, number> = {
       rattling: computedQuantities.rattling,
@@ -433,6 +478,8 @@ export default function InspectionData() {
       drift_qty: stageNumbers.drift,
       emi_qty: stageNumbers.emi,
       marking_qty: stageNumbers.marking,
+      start_date: startDate,
+      end_date: endDate,
       rattling_scrap_qty: scrapNumbers.rattling ?? 0,
       external_scrap_qty: scrapNumbers.external ?? 0,
       jetting_scrap_qty: scrapNumbers.jetting ?? 0,
@@ -606,6 +653,8 @@ export default function InspectionData() {
                     className="h-9 text-sm"
                   />
                 </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="scrap">Scrap</Label>
                   <Input
@@ -617,7 +666,28 @@ export default function InspectionData() {
                     className="h-9 text-sm"
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="start-date">Start Date</Label>
+                  <Input
+                    id="start-date"
+                    type="date"
+                    value={startDate}
+                    onChange={event => setStartDate(event.target.value)}
+                    className="h-9 text-sm"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="end-date">End Date</Label>
+                  <Input
+                    id="end-date"
+                    type="date"
+                    value={endDate}
+                    onChange={event => setEndDate(event.target.value)}
+                    className="h-9 text-sm"
+                  />
+                </div>
               </div>
+            </div>
 
               <div className="space-y-4">
                 <Table>
