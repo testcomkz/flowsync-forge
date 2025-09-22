@@ -584,11 +584,18 @@ export class SharePointService {
     }
 
     const headers = currentData[0];
-    const clientIndex = headers.findIndex((header: string) => 
-      header && header.toLowerCase().includes('client')
+    const normalize = (value: any) =>
+      value === null || value === undefined
+        ? ''
+        : String(value).trim().toLowerCase();
+    const targetClient = normalize(client);
+    const targetWo = normalize(woNo);
+
+    const clientIndex = headers.findIndex((header: string) =>
+      header && String(header).toLowerCase().includes('client')
     );
-    const woIndex = headers.findIndex((header: string) => 
-      header && header.toLowerCase().includes('wo')
+    const woIndex = headers.findIndex((header: string) =>
+      header && String(header).toLowerCase().includes('wo')
     );
 
     if (clientIndex === -1 || woIndex === -1) {
@@ -599,7 +606,10 @@ export class SharePointService {
     // Найти последнюю строку с этим клиентом и WO
     let lastClientWoRow = -1;
     for (let i = currentData.length - 1; i >= 1; i--) { // Начинаем с конца, пропускаем заголовки
-      if (currentData[i][clientIndex] === client && currentData[i][woIndex] === woNo) {
+      const rowClient = normalize(currentData[i][clientIndex]);
+      const rowWo = normalize(currentData[i][woIndex]);
+      if (!rowClient && !rowWo) continue; // пропускаем полностью пустые строки
+      if (rowClient === targetClient && rowWo === targetWo) {
         lastClientWoRow = i;
         break;
       }
@@ -610,7 +620,9 @@ export class SharePointService {
       // Найти последнюю запись этого клиента (любого WO)
       let lastClientRow = -1;
       for (let i = currentData.length - 1; i >= 1; i--) {
-        if (currentData[i][clientIndex] === client) {
+        const rowClient = normalize(currentData[i][clientIndex]);
+        if (!rowClient) continue;
+        if (rowClient === targetClient) {
           lastClientRow = i;
           break;
         }
@@ -1110,8 +1122,7 @@ export class SharePointService {
         if (headerLower.includes('pipe_to') || headerLower.includes('to')) return data.pipe_to;
         if (headerLower.includes('rack')) return data.rack || '';
         if (headerLower.includes('status')) return data.status || 'Arrived';
-        if (headerLower.includes('start_date')) return data.start_date;
-        if (headerLower.includes('end_date')) return data.end_date;
+        if (headerLower.includes('arrival')) return data.arrival_date;
         return ''; // Пустое значение для неизвестных колонок
       });
 
