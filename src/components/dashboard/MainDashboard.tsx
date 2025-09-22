@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Database, Edit3, Lock, FileSpreadsheet, Wifi, WifiOff } from "lucide-react";
+import { FileText, Database, Edit3, Lock, FileSpreadsheet, Wifi, WifiOff, ClipboardCheck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSharePoint } from "@/contexts/SharePointContext";
@@ -81,6 +81,13 @@ export const MainDashboard = () => {
       icon: Database,
       action: () => handleCardClick("/tubing-form"),
       color: "bg-green-50 hover:bg-green-100 border-green-300"
+    },
+    {
+      title: "Inspection Data",
+      description: "Complete inspection details for arrived batches",
+      icon: ClipboardCheck,
+      action: () => handleCardClick("/inspection-data"),
+      color: "bg-emerald-50 hover:bg-emerald-100 border-emerald-300"
     },
     {
       title: "Edit Records",
