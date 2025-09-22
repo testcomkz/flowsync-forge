@@ -1227,16 +1227,12 @@ export class SharePointService {
         return false;
       }
 
-      const rowValues = Array.isArray(values[rowIndex]) ? (values[rowIndex] as unknown[]) : [];
-      const targetRow = [...rowValues];
-      const usedWidth = meta.endCol - meta.startCol + 1;
-      while (targetRow.length < usedWidth) targetRow.push('');
-      if (targetRow.length > usedWidth) targetRow.length = usedWidth;
+      const updates = new Map<number, any>();
 
       const applyValue = (predicate: (header: string, canonical?: string) => boolean, value: unknown) => {
         const columnIndex = findColumn(predicate);
         if (columnIndex !== -1) {
-          targetRow[columnIndex] = value ?? '';
+          updates.set(columnIndex, value ?? '');
         }
       };
 
@@ -1290,18 +1286,71 @@ export class SharePointService {
         return header.includes('marking_qty') || c.includes('marking_qty');
       }, data.marking_qty ?? '');
 
-      const startColLetters = this.indexToColLetters(meta.startCol);
-      const endColLetters = this.indexToColLetters(meta.startCol + usedWidth - 1);
-      const rowNumber = meta.startRow + rowIndex;
-      const range = `${startColLetters}${rowNumber}:${endColLetters}${rowNumber}`;
+      if (updates.size === 0) {
+        console.warn('⚠️ No matching columns found to update for tubing inspection data');
+        return true;
+      }
 
-      const writeSuccess = await this.writeExcelData('tubing', range, [targetRow]);
-      if (writeSuccess) {
+      const sortedIndexes = Array.from(updates.keys()).sort((a, b) => a - b);
+      const rowNumber = meta.startRow + rowIndex;
+
+      type Segment = { start: number; end: number; values: any[] };
+      const segments: Segment[] = [];
+
+      let currentStart: number | null = null;
+      let currentEnd: number | null = null;
+      let currentValues: any[] = [];
+
+      for (const index of sortedIndexes) {
+        const value = updates.get(index) ?? '';
+        if (currentStart === null) {
+          currentStart = index;
+          currentEnd = index;
+          currentValues = [value];
+          continue;
+        }
+
+        if (currentEnd !== null && index === currentEnd + 1) {
+          currentEnd = index;
+          currentValues.push(value);
+        } else {
+          segments.push({ start: currentStart, end: currentEnd ?? currentStart, values: currentValues });
+          currentStart = index;
+          currentEnd = index;
+          currentValues = [value];
+        }
+      }
+
+      if (currentStart !== null) {
+        segments.push({ start: currentStart, end: currentEnd ?? currentStart, values: currentValues });
+      }
+
+      let overallSuccess = true;
+
+      for (const segment of segments) {
+        const startColNumber = meta.startCol + segment.start;
+        const endColNumber = meta.startCol + segment.end;
+        const startColLetters = this.indexToColLetters(startColNumber);
+        const endColLetters = this.indexToColLetters(endColNumber);
+        const range =
+          startColLetters === endColLetters
+            ? `${startColLetters}${rowNumber}`
+            : `${startColLetters}${rowNumber}:${endColLetters}${rowNumber}`;
+
+        const segmentValues = [segment.values.slice()];
+        const writeSuccess = await this.writeExcelData('tubing', range, segmentValues);
+        if (!writeSuccess) {
+          overallSuccess = false;
+          break;
+        }
+      }
+
+      if (overallSuccess) {
         localStorage.removeItem('sharepoint_cached_tubing');
         localStorage.removeItem('sharepoint_cache_timestamp_tubing');
       }
 
-      return writeSuccess;
+      return overallSuccess;
     } catch (error) {
       console.error('❌ Error updating tubing inspection data:', error);
       return false;
