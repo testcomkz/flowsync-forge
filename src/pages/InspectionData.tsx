@@ -67,7 +67,11 @@ const normalizeString = (value: unknown) =>
 
 const toNumeric = (value: unknown): number | null => {
   if (value === null || value === undefined) return null;
-  const num = Number(String(value).replace(/[^0-9.-]/g, ""));
+  const sanitized = String(value).replace(/[^0-9.-]/g, "");
+  if (!sanitized || /^[.-]+$/.test(sanitized)) {
+    return null;
+  }
+  const num = Number(sanitized);
   return Number.isFinite(num) ? num : null;
 };
 
@@ -282,14 +286,6 @@ export default function InspectionData() {
 
   useEffect(() => {
     if (!selectedRow) {
-      setClass1("");
-      setClass2("");
-      setClass3("");
-      setRepairValue("");
-      setScrapValue("");
-      setScrapInputs({ rattling: "", external: "", jetting: "", mpi: "", drift: "", emi: "" });
-      setInitialQty(0);
-      setInitializedRowKey(null);
       return;
     }
 
@@ -326,6 +322,21 @@ export default function InspectionData() {
       setInitializedRowKey(selectedRow.key);
     }
   }, [selectedRow, initializedRowKey]);
+
+  useEffect(() => {
+    if (selectedBatch) {
+      return;
+    }
+
+    setClass1("");
+    setClass2("");
+    setClass3("");
+    setRepairValue("");
+    setScrapValue("");
+    setScrapInputs({ rattling: "", external: "", jetting: "", mpi: "", drift: "", emi: "" });
+    setInitialQty(0);
+    setInitializedRowKey(null);
+  }, [selectedBatch]);
 
   const toNum = (s: string) => (s === "" ? 0 : Number(s));
   const computedQuantities = useMemo(() => {
