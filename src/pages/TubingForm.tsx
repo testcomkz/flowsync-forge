@@ -24,8 +24,7 @@ export default function TubingForm() {
     pipe_to: "",
     rack: "",
     status: "Arrived",
-    start_date: "",
-    end_date: ""
+    arrival_date: ""
   });
 
   const [availableClients, setAvailableClients] = useState<string[]>([]);
@@ -343,9 +342,8 @@ export default function TubingForm() {
       pipe_from: formData.pipe_from,
       pipe_to: formData.pipe_to,
       rack: formData.rack,
-      status: formData.status,
-      start_date: formData.start_date,
-      end_date: formData.end_date
+      status: 'Arrived',
+      arrival_date: formData.arrival_date
     });
     
     try {
@@ -359,9 +357,8 @@ export default function TubingForm() {
         pipe_from: formData.pipe_from,
         pipe_to: formData.pipe_to,
         rack: formData.rack,
-        status: formData.status,
-        start_date: formData.start_date,
-        end_date: formData.end_date
+        status: 'Arrived',
+        arrival_date: formData.arrival_date
       });
       
       if (success) {
@@ -391,8 +388,7 @@ export default function TubingForm() {
           pipe_to: "",
           rack: "",
           status: "Arrived",
-          start_date: "",
-          end_date: ""
+          arrival_date: ""
         });
       } else {
         toast({
@@ -608,43 +604,23 @@ export default function TubingForm() {
 
                 <div>
                   <Label htmlFor="status">Status</Label>
-                  <Select
+                  <Input
+                    id="status"
                     value={formData.status}
-                    onValueChange={(value) => handleInputChange("status", value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Arrived">Arrived</SelectItem>
-                      <SelectItem value="Ins. Done">Ins. Done</SelectItem>
-                      <SelectItem value="Completed">Completed</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    readOnly
+                    className="bg-gray-100 text-gray-600"
+                  />
                 </div>
               </div>
 
-              {/* Dates */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="start_date">Start Date</Label>
-                  <Input
-                    id="start_date"
-                    type="date"
-                    value={formData.start_date}
-                    onChange={(e) => handleInputChange("start_date", e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="end_date">End Date</Label>
-                  <Input
-                    id="end_date"
-                    type="date"
-                    value={formData.end_date}
-                    onChange={(e) => handleInputChange("end_date", e.target.value)}
-                  />
-                </div>
+              <div>
+                <Label htmlFor="arrival_date">Arrival Date</Label>
+                <Input
+                  id="arrival_date"
+                  type="date"
+                  value={formData.arrival_date}
+                  onChange={(e) => handleInputChange("arrival_date", e.target.value)}
+                />
               </div>
 
               <div className="flex justify-end space-x-4 pt-6 border-t-2 border-gray-100">
