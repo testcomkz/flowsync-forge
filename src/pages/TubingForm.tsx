@@ -628,7 +628,7 @@ export default function TubingForm() {
                   Cancel
                 </Button>
                 <Button type="submit" className="h-12 px-6 font-semibold" disabled={isLoading || !isConnected}>
-                  {isLoading ? "Creating..." : "Add Tubing Record"}
+                  {isLoading ? "Creating..." : "Save"}
                 </Button>
               </div>
             </form>

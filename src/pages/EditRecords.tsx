@@ -96,12 +96,12 @@ export default function EditRecords() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="search_client">Client</Label>
-                  <Select onValueChange={(value) => handleFilterChange("client", value)}>
+                  <Select onValueChange={(value) => handleFilterChange("client", value === "__ALL__" ? "" : value)}>
                     <SelectTrigger>
                       <SelectValue placeholder="All clients" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All clients</SelectItem>
+                      <SelectItem value="__ALL__">All clients</SelectItem>
                       <SelectItem value="Dunga">Dunga</SelectItem>
                       <SelectItem value="KenSary">KenSary</SelectItem>
                       <SelectItem value="Tasbulat">Tasbulat</SelectItem>

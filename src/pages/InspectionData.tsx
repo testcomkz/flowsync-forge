@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectLabel, SelectGroup } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ArrowLeft, ClipboardCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -561,9 +561,9 @@ export default function InspectionData() {
                   </SelectTrigger>
                   <SelectContent>
                     {availableClients.length === 0 && (
-                      <SelectItem value="" disabled>
-                        No arrived batches
-                      </SelectItem>
+                      <SelectGroup>
+                        <SelectLabel>No arrived batches</SelectLabel>
+                      </SelectGroup>
                     )}
                     {availableClients.map(client => (
                       <SelectItem key={client} value={client}>
@@ -586,9 +586,9 @@ export default function InspectionData() {
                   </SelectTrigger>
                   <SelectContent>
                     {availableWorkOrders.length === 0 && (
-                      <SelectItem value="" disabled>
-                        No arrived batches
-                      </SelectItem>
+                      <SelectGroup>
+                        <SelectLabel>No arrived batches</SelectLabel>
+                      </SelectGroup>
                     )}
                     {availableWorkOrders.map(wo => (
                       <SelectItem key={wo} value={wo}>
@@ -611,15 +611,17 @@ export default function InspectionData() {
                   </SelectTrigger>
                   <SelectContent>
                     {availableBatches.length === 0 && (
-                      <SelectItem value="" disabled>
-                        No arrived batches
-                      </SelectItem>
+                      <SelectGroup>
+                        <SelectLabel>No arrived batches</SelectLabel>
+                      </SelectGroup>
                     )}
-                    {availableBatches.map(batch => (
-                      <SelectItem key={batch.batch} value={batch.batch}>
-                        {batch.batch}
-                      </SelectItem>
-                    ))}
+                    {availableBatches
+                      .filter(batch => !!batch.batch)
+                      .map(batch => (
+                        <SelectItem key={batch.batch} value={batch.batch}>
+                          {batch.batch}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
