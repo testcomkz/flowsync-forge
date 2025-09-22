@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Header } from "@/components/layout/Header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -531,18 +531,15 @@ export default function InspectionData() {
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-5">
-          <Card className="lg:col-span-2">
-            <CardHeader>
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[1.05fr_1.45fr]">
+          <Card className="h-full border-blue-100 shadow-sm">
+            <CardHeader className="border-b border-blue-100 pb-4">
               <CardTitle className="text-lg font-semibold text-blue-900">Batch Selection</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-5 pt-4">
               <div className="space-y-2">
                 <Label className="text-sm">Client</Label>
-                <Select
-                  value={selectedClient || undefined}
-                  onValueChange={value => setSelectedClient(value)}
-                >
+                <Select value={selectedClient || undefined} onValueChange={value => setSelectedClient(value)}>
                   <SelectTrigger className="h-9">
                     <SelectValue placeholder="Choose client" />
                   </SelectTrigger>
@@ -606,12 +603,12 @@ export default function InspectionData() {
               </div>
 
               {selectedRow && (
-                <div className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900 flex items-center justify-between">
+                <div className="flex items-start justify-between rounded-lg border border-blue-100 bg-blue-50/80 p-3 text-sm text-blue-900">
                   <div>
                     <p className="font-semibold">Batch Info</p>
                     <p>Qty: {initialQty}</p>
                   </div>
-                  <span className="ml-4 rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
+                  <span className="ml-4 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium uppercase tracking-wide text-blue-800">
                     {selectedRow.status || "Arrived"}
                   </span>
                 </div>
@@ -619,17 +616,12 @@ export default function InspectionData() {
             </CardContent>
           </Card>
 
-          <Card className="lg:col-span-3">
-            <CardHeader className="flex flex-row items-center justify-between">
+          <Card className="h-full border-emerald-100 shadow-sm">
+            <CardHeader className="border-b border-emerald-100 pb-4">
               <CardTitle className="text-lg font-semibold text-emerald-900">Inspection Data</CardTitle>
-              {selectedRow && (
-                <span className="rounded bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                  Status: {selectedRow.status || "Arrived"}
-                </span>
-              )}
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
+            <CardContent className="space-y-6 pt-4">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="class1">Class 1</Label>
                   <Input
@@ -660,42 +652,42 @@ export default function InspectionData() {
                     className="h-9 text-sm"
                   />
                 </div>
-              <div className="space-y-2">
-                <Label htmlFor="repair">Repair</Label>
-                <Input
-                  id="repair"
-                  value={repairValue}
-                  onChange={event => setRepairValue(sanitizeDigits(event.target.value))}
-                  placeholder="0"
-                  inputMode="numeric"
-                  className="h-9 text-sm"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="startDate">Start Date</Label>
-                <Input
-                  id="startDate"
-                  type="date"
-                  value={startDate}
-                  onChange={event => setStartDate(event.target.value)}
-                  className="h-9 text-sm"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="endDate">End Date</Label>
-                <Input
-                  id="endDate"
-                  type="date"
-                  value={endDate}
-                  onChange={event => setEndDate(event.target.value)}
-                  className="h-9 text-sm"
-                />
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="scrap">Scrap</Label>
-                <Input
-                  id="scrap"
-                  value={scrapValue}
+                <div className="space-y-2">
+                  <Label htmlFor="repair">Repair</Label>
+                  <Input
+                    id="repair"
+                    value={repairValue}
+                    onChange={event => setRepairValue(sanitizeDigits(event.target.value))}
+                    placeholder="0"
+                    inputMode="numeric"
+                    className="h-9 text-sm"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="startDate">Start Date</Label>
+                  <Input
+                    id="startDate"
+                    type="date"
+                    value={startDate}
+                    onChange={event => setStartDate(event.target.value)}
+                    className="h-9 text-sm"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="endDate">End Date</Label>
+                  <Input
+                    id="endDate"
+                    type="date"
+                    value={endDate}
+                    onChange={event => setEndDate(event.target.value)}
+                    className="h-9 text-sm"
+                  />
+                </div>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="scrap">Scrap</Label>
+                  <Input
+                    id="scrap"
+                    value={scrapValue}
                     onChange={event => setScrapValue(sanitizeDigits(event.target.value))}
                     placeholder="0"
                     inputMode="numeric"
@@ -704,56 +696,83 @@ export default function InspectionData() {
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-1/3 text-sm">Stage</TableHead>
-                      <TableHead className="text-sm">Qty</TableHead>
-                      <TableHead className="text-sm">Scrap Qty</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {stageMeta.map(stage => (
-                      <TableRow key={stage.key}>
-                        <TableCell className="font-medium">{stage.label}</TableCell>
-                        <TableCell>
-                          <Input
-                            value={String(computedQuantities[stage.key] ?? 0)}
-                            disabled
-                            className="h-9 text-sm"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          {stage.scrapKey ? (
-                            <Input
-                              value={scrapInputs[stage.scrapKey] ?? ""}
-                              onChange={e => handleScrapChange(stage.scrapKey as ScrapKey, e.target.value)}
-                              inputMode="numeric"
-                              placeholder="0"
-                              className="h-9 text-sm"
-                            />
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="text-sm text-muted-foreground">
-                  Итоговый Scrap: <span className="font-semibold text-emerald-700">{totalScrap}</span>
+              {selectedRow && (
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50/70 p-3 text-sm text-emerald-900">
+                  <p className="font-semibold">Current selection</p>
+                  <div className="mt-1 flex flex-wrap gap-4">
+                    <span>Client: {selectedRow.client}</span>
+                    <span>WO: {selectedRow.wo_no}</span>
+                    <span>Batch: {selectedRow.batch}</span>
+                  </div>
                 </div>
-                <Button onClick={handleSave} disabled={isSaving || !selectedRow} className="h-9">
-                  {isSaving ? "Saving..." : "Save"}
-                </Button>
-              </div>
+              )}
             </CardContent>
           </Card>
         </div>
+
+        <Card className="mt-4 border-slate-200 shadow-sm">
+          <CardHeader className="flex flex-col gap-2 border-b border-slate-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle className="text-lg font-semibold text-slate-900">Inspection Stages</CardTitle>
+            {selectedRow && (
+              <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                <span className="rounded-full bg-emerald-50 px-3 py-1 font-medium text-emerald-700">
+                  {selectedRow.status || "Arrived"}
+                </span>
+                <span>
+                  Total Qty: <span className="font-semibold text-slate-900">{initialQty}</span>
+                </span>
+              </div>
+            )}
+          </CardHeader>
+          <CardContent className="space-y-4 pt-4">
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
+              <Table>
+                <TableHeader className="bg-slate-50">
+                  <TableRow>
+                    <TableHead className="w-1/3 text-sm font-semibold text-slate-600">Stage</TableHead>
+                    <TableHead className="text-sm font-semibold text-slate-600">Qty</TableHead>
+                    <TableHead className="text-sm font-semibold text-slate-600">Scrap Qty</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {stageMeta.map(stage => (
+                    <TableRow key={stage.key}>
+                      <TableCell className="font-medium text-slate-700">{stage.label}</TableCell>
+                      <TableCell>
+                        <Input
+                          value={String(computedQuantities[stage.key] ?? 0)}
+                          disabled
+                          className="h-9 text-sm"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {stage.scrapKey ? (
+                          <Input
+                            value={scrapInputs[stage.scrapKey] ?? ""}
+                            onChange={e => handleScrapChange(stage.scrapKey as ScrapKey, e.target.value)}
+                            inputMode="numeric"
+                            placeholder="0"
+                            className="h-9 text-sm"
+                          />
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+          <CardFooter className="flex flex-wrap items-center justify-between gap-4">
+            <div className="text-sm text-muted-foreground">
+              Итоговый Scrap: <span className="font-semibold text-emerald-700">{totalScrap}</span>
+            </div>
+            <Button onClick={handleSave} disabled={isSaving || !selectedRow} className="h-9 px-6">
+              {isSaving ? "Saving..." : "Save"}
+            </Button>
+          </CardFooter>
+        </Card>
       </div>
     </div>
   );
