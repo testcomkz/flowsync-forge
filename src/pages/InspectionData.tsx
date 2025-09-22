@@ -122,7 +122,7 @@ export default function InspectionData() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user } = useAuth();
-  const { sharePointService, isConnected } = useSharePoint();
+  const { sharePointService, isConnected, refreshDataInBackground } = useSharePoint();
   const { tubingData } = useSharePointInstantData();
 
   const [selectedClient, setSelectedClient] = useState("");
@@ -470,33 +470,49 @@ export default function InspectionData() {
     }
 
     setIsSaving(true);
-    const success = await sharePointService.updateTubingInspectionData({
-      client: selectedRow.client,
-      wo_no: selectedRow.wo_no,
-      batch: selectedRow.batch,
-      class_1: class1,
-      class_2: class2,
-      class_3: class3,
-      repair: sanitizeDigits(repairValue) || "0",
-      scrap: scrapNumber,
-      start_date: startDate,
-      end_date: endDate,
-      rattling_qty: stageNumbers.rattling,
-      external_qty: stageNumbers.external,
-      hydro_qty: stageNumbers.hydro,
-      mpi_qty: stageNumbers.mpi,
-      drift_qty: stageNumbers.drift,
-      emi_qty: stageNumbers.emi,
-      marking_qty: stageNumbers.marking,
-      status: "Inspection Done"
-    });
-    setIsSaving(false);
-    if (success) {
-      toast({ title: "Успешно", description: "Инспекция сохранена и партия обновлена", variant: "default" });
-      setProcessedKeys(prev => (prev.includes(selectedRow.key) ? prev : [...prev, selectedRow.key]));
-      setSelectedBatch("");
-    } else {
+    try {
+      const success = await sharePointService.updateTubingInspectionData({
+        client: selectedRow.client,
+        wo_no: selectedRow.wo_no,
+        batch: selectedRow.batch,
+        class_1: class1,
+        class_2: class2,
+        class_3: class3,
+        repair: sanitizeDigits(repairValue) || "0",
+        scrap: scrapNumber,
+        start_date: startDate,
+        end_date: endDate,
+        rattling_qty: stageNumbers.rattling,
+        external_qty: stageNumbers.external,
+        hydro_qty: stageNumbers.hydro,
+        mpi_qty: stageNumbers.mpi,
+        drift_qty: stageNumbers.drift,
+        emi_qty: stageNumbers.emi,
+        marking_qty: stageNumbers.marking,
+        status: "Inspection Done"
+      });
+
+      if (success) {
+        toast({ title: "Успешно", description: "Инспекция сохранена и партия обновлена", variant: "default" });
+        setProcessedKeys(prev => (prev.includes(selectedRow.key) ? prev : [...prev, selectedRow.key]));
+        setSelectedBatch("");
+
+        if (sharePointService && refreshDataInBackground) {
+          try {
+            localStorage.removeItem("sharepoint_last_refresh");
+            await refreshDataInBackground(sharePointService);
+          } catch (refreshError) {
+            console.warn("Failed to refresh SharePoint data after inspection save:", refreshError);
+          }
+        }
+      } else {
+        toast({ title: "Ошибка", description: "Не удалось обновить данные партии", variant: "destructive" });
+      }
+    } catch (error) {
+      console.error("Failed to update tubing inspection data:", error);
       toast({ title: "Ошибка", description: "Не удалось обновить данные партии", variant: "destructive" });
+    } finally {
+      setIsSaving(false);
     }
   };
 

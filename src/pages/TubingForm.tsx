@@ -34,7 +34,7 @@ export default function TubingForm() {
   const [lastPipeTo, setLastPipeTo] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(false);
   const { user } = useAuth();
-  const { sharePointService, isConnected } = useSharePoint();
+  const { sharePointService, isConnected, refreshDataInBackground } = useSharePoint();
   const { clients, workOrders: cachedWorkOrders, tubingData: cachedTubingData } = useSharePointInstantData();
   const { toast } = useToast();
 
@@ -377,6 +377,16 @@ export default function TubingForm() {
           duration: 6000,
         });
         
+        // Автоматически обновляем данные SharePoint, чтобы все карточки видели свежие изменения
+        if (sharePointService && refreshDataInBackground) {
+          try {
+            localStorage.removeItem("sharepoint_last_refresh");
+            await refreshDataInBackground(sharePointService);
+          } catch (refreshError) {
+            console.warn("Failed to refresh SharePoint data after tubing save:", refreshError);
+          }
+        }
+
         // Reset form
         setFormData({
           client: "",

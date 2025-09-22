@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileText, Database, Edit3, Lock, FileSpreadsheet, Wifi, WifiOff, ClipboardCheck } from "lucide-react";
@@ -10,9 +10,17 @@ import { useToast } from "@/hooks/use-toast";
 
 export const MainDashboard = () => {
   const navigate = useNavigate();
-  const { user, isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const { toast } = useToast();
-  const { isConnected, isConnecting, connect, disconnect, error } = useSharePoint();
+  const {
+    isConnected,
+    isConnecting,
+    connect,
+    disconnect,
+    sharePointService,
+    refreshDataInBackground
+  } = useSharePoint();
+  const [refreshingCard, setRefreshingCard] = useState<string | null>(null);
 
   // Показываем загрузку пока проверяем аутентификацию
   if (isLoading) {
@@ -26,7 +34,7 @@ export const MainDashboard = () => {
     );
   }
 
-  const handleCardClick = (path: string) => {
+  const handleCardClick = async (path: string) => {
     if (!isAuthenticated) {
       alert("Пожалуйста, войдите в систему для доступа к этой функции");
       return;
@@ -34,6 +42,18 @@ export const MainDashboard = () => {
     if (!isConnected) {
       alert("Сначала подключитесь к SharePoint");
       return;
+    }
+    if (sharePointService && refreshDataInBackground) {
+      try {
+        setRefreshingCard(path);
+        // Сбрасываем метку свежести, чтобы принудительно получить новые данные
+        localStorage.removeItem("sharepoint_last_refresh");
+        await refreshDataInBackground(sharePointService);
+      } catch (error) {
+        console.warn("Failed to refresh SharePoint data before navigation:", error);
+      } finally {
+        setRefreshingCard(null);
+      }
     }
     navigate(path);
   };
@@ -72,28 +92,28 @@ export const MainDashboard = () => {
       title: "Add Work Order",
       description: "Create new work orders with client and project details",
       icon: FileText,
-      action: () => handleCardClick("/wo-form"),
+      path: "/wo-form",
       color: "bg-blue-50 hover:bg-blue-100 border-blue-300"
     },
     {
       title: "Tubing Registry",
       description: "Register and track tubing batches and inspections",
       icon: Database,
-      action: () => handleCardClick("/tubing-form"),
+      path: "/tubing-form",
       color: "bg-green-50 hover:bg-green-100 border-green-300"
     },
     {
       title: "Inspection Data",
       description: "Complete inspection details for arrived batches",
       icon: ClipboardCheck,
-      action: () => handleCardClick("/inspection-data"),
+      path: "/inspection-data",
       color: "bg-emerald-50 hover:bg-emerald-100 border-emerald-300"
     },
     {
       title: "Edit Records",
       description: "Modify existing work orders and tubing records",
       icon: Edit3,
-      action: () => handleCardClick("/edit"),
+      path: "/edit",
       color: "bg-orange-50 hover:bg-orange-100 border-orange-300"
     }
   ];
@@ -175,11 +195,14 @@ export const MainDashboard = () => {
         {/* Work Cards - Only show when SharePoint is connected */}
         {isConnected && workCards.map((card, index) => {
           const IconComponent = card.icon;
+          const isCardRefreshing = refreshingCard === card.path;
           return (
-            <Card 
-              key={index} 
-              className={`cursor-pointer transition-all duration-200 border-2 shadow-lg hover:shadow-xl ${card.color} ${!isAuthenticated ? 'opacity-60' : ''}`}
-              onClick={card.action}
+            <Card
+              key={index}
+              className={`cursor-pointer transition-all duration-200 border-2 shadow-lg hover:shadow-xl ${card.color} ${
+                !isAuthenticated ? 'opacity-60' : ''
+              } ${isCardRefreshing ? 'opacity-75 pointer-events-none' : ''}`}
+              onClick={() => handleCardClick(card.path)}
             >
               <CardHeader className="text-center pb-4">
                 <div className="mx-auto w-14 h-14 rounded-full bg-white flex items-center justify-center mb-4 shadow-md border-2 border-gray-100">
@@ -195,16 +218,20 @@ export const MainDashboard = () => {
                 </CardDescription>
               </CardHeader>
               <CardContent className="pt-0">
-                <Button 
-                  className="w-full h-12 text-base font-semibold border-2" 
+                <Button
+                  className="w-full h-12 text-base font-semibold border-2"
                   variant={isAuthenticated ? "default" : "outline"}
-                  disabled={!isAuthenticated}
-                  onClick={(e) => {
+                  disabled={!isAuthenticated || isCardRefreshing}
+                  onClick={async (e) => {
                     e.stopPropagation();
-                    card.action();
+                    await handleCardClick(card.path);
                   }}
                 >
-                  {isAuthenticated ? `Open ${card.title}` : "Login Required"}
+                  {isCardRefreshing
+                    ? "Updating data..."
+                    : isAuthenticated
+                      ? `Open ${card.title}`
+                      : "Login Required"}
                 </Button>
               </CardContent>
             </Card>
