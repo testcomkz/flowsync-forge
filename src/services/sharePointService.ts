@@ -1108,22 +1108,10 @@ export class SharePointService {
         if (headerLower.includes('qty') && !headerLower.includes('_')) return data.qty;
         if (headerLower.includes('pipe_from') || headerLower.includes('from')) return data.pipe_from;
         if (headerLower.includes('pipe_to') || headerLower.includes('to')) return data.pipe_to;
-        if (headerLower.includes('class_1')) return data.class_1;
-        if (headerLower.includes('class_2')) return data.class_2;
-        if (headerLower.includes('class_3')) return data.class_3;
-        if (headerLower.includes('repair')) return data.repair;
-        if (headerLower.includes('scrap')) return data.scrap;
+        if (headerLower.includes('rack')) return data.rack || '';
+        if (headerLower.includes('status')) return data.status || 'Arrived';
         if (headerLower.includes('start_date')) return data.start_date;
         if (headerLower.includes('end_date')) return data.end_date;
-        if (headerLower.includes('rattling_qty')) return data.rattling_qty || 0;
-        if (headerLower.includes('external_qty')) return data.external_qty || 0;
-        if (headerLower.includes('hydro_qty')) return data.hydro_qty || 0;
-        if (headerLower.includes('mpi_qty')) return data.mpi_qty || 0;
-        if (headerLower.includes('drift_qty')) return data.drift_qty || 0;
-        if (headerLower.includes('emi_qty')) return data.emi_qty || 0;
-        if (headerLower.includes('marking_qty')) return data.marking_qty || 0;
-        if (headerLower.includes('act_no_oper')) return data.act_no_oper;
-        if (headerLower.includes('act_date')) return data.act_date;
         return ''; // Пустое значение для неизвестных колонок
       });
 
