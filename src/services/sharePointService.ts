@@ -1147,6 +1147,134 @@ export class SharePointService {
     }
   }
 
+  async updateTubingInspectionData(data: {
+    client: string;
+    wo_no: string;
+    batch: string;
+    class_1?: string;
+    class_2?: string;
+    class_3?: string;
+    repair?: string;
+    scrap?: string | number;
+    rattling_qty?: number;
+    external_qty?: number;
+    hydro_qty?: number;
+    mpi_qty?: number;
+    drift_qty?: number;
+    emi_qty?: number;
+    marking_qty?: number;
+    rattling_scrap_qty?: number;
+    external_scrap_qty?: number;
+    jetting_scrap_qty?: number;
+    mpi_scrap_qty?: number;
+    drift_scrap_qty?: number;
+    emi_scrap_qty?: number;
+    status?: string;
+  }): Promise<boolean> {
+    try {
+      const usedInfo = await this.getUsedRangeInfo('tubing');
+      if (!usedInfo?.values?.length) {
+        console.warn('⚠️ No tubing data available to update');
+        return false;
+      }
+
+      const { values, meta } = usedInfo;
+      const headersRow = Array.isArray(values[0]) ? (values[0] as unknown[]) : [];
+
+      const normalize = (value: unknown) =>
+        value === null || value === undefined
+          ? ''
+          : String(value).trim().toLowerCase();
+
+      const findColumn = (matcher: (header: string) => boolean) =>
+        headersRow.findIndex(header => matcher(normalize(header)));
+
+      const clientIndex = findColumn(header => header.includes('client'));
+      const woIndex = findColumn(header => header.includes('wo'));
+      const batchIndex = findColumn(header => header.includes('batch'));
+
+      if (clientIndex === -1 || woIndex === -1 || batchIndex === -1) {
+        console.error('❌ Required columns (client/wo/batch) not found in tubing sheet');
+        return false;
+      }
+
+      const targetClient = normalize(data.client);
+      const targetWo = normalize(data.wo_no);
+      const targetBatch = normalize(data.batch);
+
+      const rowIndex = values.findIndex((row, idx) => {
+        if (idx === 0) return false;
+        return (
+          normalize(row[clientIndex]) === targetClient &&
+          normalize(row[woIndex]) === targetWo &&
+          normalize(row[batchIndex]) === targetBatch
+        );
+      });
+
+      if (rowIndex === -1) {
+        console.warn('⚠️ Target tubing record not found for inspection update', data);
+        return false;
+      }
+
+      const rowValues = Array.isArray(values[rowIndex]) ? (values[rowIndex] as unknown[]) : [];
+      const targetRow = [...rowValues];
+      const usedWidth = meta.endCol - meta.startCol + 1;
+      while (targetRow.length < usedWidth) targetRow.push('');
+      if (targetRow.length > usedWidth) targetRow.length = usedWidth;
+
+      const applyValue = (predicate: (header: string) => boolean, value: unknown) => {
+        const columnIndex = findColumn(predicate);
+        if (columnIndex !== -1) {
+          targetRow[columnIndex] = value ?? '';
+        }
+      };
+
+      applyValue(header => header.includes('class 1') || header.includes('class_1'), data.class_1);
+      applyValue(header => header.includes('class 2') || header.includes('class_2'), data.class_2);
+      applyValue(header => header.includes('class 3') || header.includes('class_3'), data.class_3);
+      applyValue(header => header.includes('repair'), data.repair);
+      applyValue(header => header.includes('status'), data.status ?? 'Inspection Done');
+      applyValue(
+        header => header.includes('scrap') && !header.includes('scrap_qty'),
+        data.scrap ?? ''
+      );
+
+      applyValue(
+        header => header.includes('rattling_qty') && !header.includes('scrap'),
+        data.rattling_qty ?? ''
+      );
+      applyValue(header => header.includes('external_qty'), data.external_qty ?? '');
+      applyValue(header => header.includes('hydro_qty'), data.hydro_qty ?? '');
+      applyValue(header => header.includes('mpi_qty'), data.mpi_qty ?? '');
+      applyValue(header => header.includes('drift_qty'), data.drift_qty ?? '');
+      applyValue(header => header.includes('emi_qty'), data.emi_qty ?? '');
+      applyValue(header => header.includes('marking_qty'), data.marking_qty ?? '');
+
+      applyValue(header => header.includes('rattling_scrap_qty'), data.rattling_scrap_qty ?? '');
+      applyValue(header => header.includes('external_scrap_qty'), data.external_scrap_qty ?? '');
+      applyValue(header => header.includes('jetting_scrap_qty'), data.jetting_scrap_qty ?? '');
+      applyValue(header => header.includes('mpi_scrap_qty'), data.mpi_scrap_qty ?? '');
+      applyValue(header => header.includes('drift_scrap_qty'), data.drift_scrap_qty ?? '');
+      applyValue(header => header.includes('emi_scrap_qty'), data.emi_scrap_qty ?? '');
+
+      const startColLetters = this.indexToColLetters(meta.startCol);
+      const endColLetters = this.indexToColLetters(meta.startCol + usedWidth - 1);
+      const rowNumber = meta.startRow + rowIndex;
+      const range = `${startColLetters}${rowNumber}:${endColLetters}${rowNumber}`;
+
+      const writeSuccess = await this.writeExcelData('tubing', range, [targetRow]);
+      if (writeSuccess) {
+        localStorage.removeItem('sharepoint_cached_tubing');
+        localStorage.removeItem('sharepoint_cache_timestamp_tubing');
+      }
+
+      return writeSuccess;
+    } catch (error) {
+      console.error('❌ Error updating tubing inspection data:', error);
+      return false;
+    }
+  }
+
   // Получить ID сайта SharePoint из env переменных
   private async getSiteId(): Promise<string> {
     const SITE_ID = import.meta.env.VITE_SP_SITE_ID as string;
