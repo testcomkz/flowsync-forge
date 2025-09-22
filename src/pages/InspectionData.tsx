@@ -128,9 +128,13 @@ export default function InspectionData() {
     const woIndex = findIndex(header => header.includes("wo"));
     const batchIndex = findIndex(header => header.includes("batch"));
     const statusIndex = findIndex(header => header.includes("status"));
-    const baseQtyIndex = findIndex(
-      header => header.includes("qty") && !header.includes("_") && !header.includes("scrap")
-    );
+    const stageKeywords = ["rattling", "external", "hydro", "mpi", "drift", "emi", "marking"];
+    const baseQtyIndex = findIndex(header => {
+      if (!header.includes("qty")) return false;
+      if (header.includes("scrap")) return false;
+      if (header.includes("_")) return false;
+      return !stageKeywords.some(keyword => header.includes(keyword));
+    });
     const class1Index = findIndex(header => header.includes("class 1") || header.includes("class_1"));
     const class2Index = findIndex(header => header.includes("class 2") || header.includes("class_2"));
     const class3Index = findIndex(header => header.includes("class 3") || header.includes("class_3"));
