@@ -12,7 +12,7 @@ export const MainDashboard = () => {
   const navigate = useNavigate();
   const { user, isAuthenticated, isLoading } = useAuth();
   const { toast } = useToast();
-  const { isConnected, isConnecting, connect, disconnect, error } = useSharePoint();
+  const { isConnected, isConnecting, connect, disconnect, error, ensureLatestData } = useSharePoint();
 
   // Показываем загрузку пока проверяем аутентификацию
   if (isLoading) {
@@ -26,7 +26,7 @@ export const MainDashboard = () => {
     );
   }
 
-  const handleCardClick = (path: string) => {
+  const handleCardClick = async (path: string) => {
     if (!isAuthenticated) {
       alert("Пожалуйста, войдите в систему для доступа к этой функции");
       return;
@@ -34,6 +34,11 @@ export const MainDashboard = () => {
     if (!isConnected) {
       alert("Сначала подключитесь к SharePoint");
       return;
+    }
+    try {
+      await ensureLatestData();
+    } catch (err) {
+      console.warn('Failed to refresh data before navigation:', err);
     }
     navigate(path);
   };
@@ -176,10 +181,12 @@ export const MainDashboard = () => {
         {isConnected && workCards.map((card, index) => {
           const IconComponent = card.icon;
           return (
-            <Card 
-              key={index} 
+            <Card
+              key={index}
               className={`cursor-pointer transition-all duration-200 border-2 shadow-lg hover:shadow-xl ${card.color} ${!isAuthenticated ? 'opacity-60' : ''}`}
-              onClick={card.action}
+              onClick={() => {
+                void card.action();
+              }}
             >
               <CardHeader className="text-center pb-4">
                 <div className="mx-auto w-14 h-14 rounded-full bg-white flex items-center justify-center mb-4 shadow-md border-2 border-gray-100">
@@ -195,13 +202,13 @@ export const MainDashboard = () => {
                 </CardDescription>
               </CardHeader>
               <CardContent className="pt-0">
-                <Button 
-                  className="w-full h-12 text-base font-semibold border-2" 
+                <Button
+                  className="w-full h-12 text-base font-semibold border-2"
                   variant={isAuthenticated ? "default" : "outline"}
                   disabled={!isAuthenticated}
-                  onClick={(e) => {
+                  onClick={async (e) => {
                     e.stopPropagation();
-                    card.action();
+                    await card.action();
                   }}
                 >
                   {isAuthenticated ? `Open ${card.title}` : "Login Required"}

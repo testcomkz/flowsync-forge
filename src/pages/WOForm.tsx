@@ -15,7 +15,7 @@ import { useSharePointInstantData } from "@/hooks/useInstantData";
 export default function WOForm() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { sharePointService, isConnected, refreshDataInBackground } = useSharePoint();
+  const { sharePointService, isConnected, ensureLatestData } = useSharePoint();
   const { toast } = useToast();
   const { clients } = useSharePointInstantData();
   const [availableClients, setAvailableClients] = useState<string[]>(clients);
@@ -190,12 +190,8 @@ export default function WOForm() {
 
         // Auto-press "Update Data" button once: clear freshness and trigger background refresh
         try {
-          if (sharePointService && refreshDataInBackground) {
-            console.log('🟦 Auto Update Data: clearing last refresh and triggering background refresh');
-            localStorage.removeItem('sharepoint_last_refresh');
-            // Fire and forget to avoid blocking the form UI
-            refreshDataInBackground(sharePointService).catch(err => console.warn('Auto update failed:', err));
-          }
+          console.log('🟦 Auto Update Data: ensuring latest SharePoint data after WO creation');
+          await ensureLatestData();
         } catch (e) {
           console.warn('Auto Update Data encountered an error:', e);
         }

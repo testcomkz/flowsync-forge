@@ -16,6 +16,7 @@ interface SharePointContextType {
   isDataLoading: boolean;
   refreshData: () => Promise<void>;
   refreshDataInBackground: (service: SharePointService) => Promise<void>;
+  ensureLatestData: () => Promise<void>;
   resetExcelSession: () => void;
 }
 
@@ -284,6 +285,22 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
     await refreshDataInBackground(sharePointService);
   };
 
+  // Универсальная функция для мгновенного обновления данных по требованию UI
+  const ensureLatestData = async () => {
+    if (!sharePointService) {
+      console.warn('Cannot ensure latest data: SharePoint service is not connected');
+      return;
+    }
+
+    try {
+      localStorage.removeItem('sharepoint_last_refresh');
+      await refreshDataInBackground(sharePointService);
+    } catch (error) {
+      console.error('Failed to ensure latest SharePoint data:', error);
+      throw error;
+    }
+  };
+
   // Ручной сброс Excel session (Workbook Session ID)
   const resetExcelSession = () => {
     try {
@@ -382,6 +399,7 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
     isDataLoading,
     refreshData,
     refreshDataInBackground,
+    ensureLatestData,
     resetExcelSession
   };
 

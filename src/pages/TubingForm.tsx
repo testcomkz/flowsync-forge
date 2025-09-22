@@ -34,7 +34,7 @@ export default function TubingForm() {
   const [lastPipeTo, setLastPipeTo] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(false);
   const { user } = useAuth();
-  const { sharePointService, isConnected } = useSharePoint();
+  const { sharePointService, isConnected, ensureLatestData } = useSharePoint();
   const { clients, workOrders: cachedWorkOrders, tubingData: cachedTubingData } = useSharePointInstantData();
   const { toast } = useToast();
 
@@ -377,6 +377,13 @@ export default function TubingForm() {
           duration: 6000,
         });
         
+        try {
+          console.log('🟦 Auto Update Data: ensuring latest SharePoint data after tubing record creation');
+          await ensureLatestData();
+        } catch (e) {
+          console.warn('Auto Update Data encountered an error:', e);
+        }
+
         // Reset form
         setFormData({
           client: "",
