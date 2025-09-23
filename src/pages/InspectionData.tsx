@@ -126,9 +126,9 @@ export default function InspectionData() {
   const { sharePointService, isConnected, refreshDataInBackground } = useSharePoint();
   const { tubingData } = useSharePointInstantData();
 
-  const [selectedClient, setSelectedClient] = useState("");
-  const [selectedWorkOrder, setSelectedWorkOrder] = useState("");
-  const [selectedBatch, setSelectedBatch] = useState("");
+  const [selectedClient, setSelectedClient] = useState<string | undefined>(undefined);
+  const [selectedWorkOrder, setSelectedWorkOrder] = useState<string | undefined>(undefined);
+  const [selectedBatch, setSelectedBatch] = useState<string | undefined>(undefined);
   const [selectedRow, setSelectedRow] = useState<ArrivedBatchRow | null>(null);
   const [class1, setClass1] = useState("");
   const [class2, setClass2] = useState("");
@@ -303,17 +303,17 @@ export default function InspectionData() {
 
   useEffect(() => {
     if (selectedClient && !availableClients.includes(selectedClient)) {
-      setSelectedClient("");
-      setSelectedWorkOrder("");
-      setSelectedBatch("");
+      setSelectedClient(undefined);
+      setSelectedWorkOrder(undefined);
+      setSelectedBatch(undefined);
       setSelectedRow(null);
     }
   }, [availableClients, selectedClient]);
 
   useEffect(() => {
     if (selectedWorkOrder && !availableWorkOrders.includes(selectedWorkOrder)) {
-      setSelectedWorkOrder("");
-      setSelectedBatch("");
+      setSelectedWorkOrder(undefined);
+      setSelectedBatch(undefined);
       setSelectedRow(null);
     }
   }, [availableWorkOrders, selectedWorkOrder]);
@@ -505,7 +505,7 @@ export default function InspectionData() {
       if (success) {
         toast({ title: "Успешно", description: "Инспекция сохранена и партия обновлена", variant: "default" });
         setProcessedKeys(prev => (prev.includes(selectedRow.key) ? prev : [...prev, selectedRow.key]));
-        setSelectedBatch("");
+        setSelectedBatch(undefined);
 
         if (sharePointService && refreshDataInBackground) {
           try {
@@ -541,7 +541,7 @@ export default function InspectionData() {
           </div>
         </div>
 
-        <div className="grid gap-2 lg:grid-cols-[340px_minmax(0,1fr)] items-stretch max-w-[1024px] mx-auto">
+        <div className="grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)] items-stretch max-w-[1024px] mx-auto">
         <div className="lg:col-start-1 lg:row-start-1 flex flex-col gap-1 h-full">
         {/* Step 1: Batch Selection */}
         <Card className="border-blue-100 shadow-sm self-start">
@@ -549,11 +549,11 @@ export default function InspectionData() {
             <CardTitle className="text-lg font-semibold text-blue-900">Batch Selection</CardTitle>
           </CardHeader>
           <CardContent className="p-4 pt-3">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="space-y-2">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2 w-full">
                 <Label className="text-sm">Client</Label>
-                <Select value={selectedClient || undefined} onValueChange={value => setSelectedClient(value)}>
-                  <SelectTrigger className="h-8 px-2 text-sm">
+                <Select value={selectedClient ?? undefined} onValueChange={value => setSelectedClient(value)}>
+                  <SelectTrigger className="h-9 w-full justify-between px-3 text-sm">
                     <SelectValue placeholder="Choose client" />
                   </SelectTrigger>
                   <SelectContent>
@@ -569,14 +569,14 @@ export default function InspectionData() {
                 </Select>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-2 w-full">
                 <Label className="text-sm">Work Order</Label>
                 <Select
-                  value={selectedWorkOrder || undefined}
+                  value={selectedWorkOrder ?? undefined}
                   onValueChange={value => setSelectedWorkOrder(value)}
                   disabled={!selectedClient}
                 >
-                  <SelectTrigger className="h-8 px-2 text-sm">
+                  <SelectTrigger className="h-9 w-full justify-between px-3 text-sm">
                     <SelectValue placeholder="Choose work order" />
                   </SelectTrigger>
                   <SelectContent>
@@ -592,14 +592,14 @@ export default function InspectionData() {
                 </Select>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-2 w-full">
                 <Label className="text-sm">Batch</Label>
                 <Select
-                  value={selectedBatch || undefined}
+                  value={selectedBatch ?? undefined}
                   onValueChange={value => setSelectedBatch(value)}
                   disabled={!selectedClient || !selectedWorkOrder}
                 >
-                  <SelectTrigger className="h-8 px-2 text-sm">
+                  <SelectTrigger className="h-9 w-full justify-between px-3 text-sm">
                     <SelectValue placeholder="Choose arrived batch" />
                   </SelectTrigger>
                   <SelectContent>
@@ -655,15 +655,15 @@ export default function InspectionData() {
               <Table>
                 <TableHeader className="bg-slate-50 [&_th]:h-9 [&_th]:px-2.5 [&_th]:py-1.5">
                   <TableRow>
-                    <TableHead className="w-1/3 text-sm font-semibold text-slate-600">Stage</TableHead>
-                    <TableHead className="text-sm font-semibold text-slate-600">Qty</TableHead>
-                    <TableHead className="text-sm font-semibold text-slate-600">Scrap Qty</TableHead>
+                    <TableHead className="w-1/3 text-xs font-semibold text-slate-600 sm:text-sm">Stage</TableHead>
+                    <TableHead className="text-xs font-semibold text-slate-600 sm:text-sm">Qty</TableHead>
+                    <TableHead className="text-xs font-semibold text-slate-600 sm:text-sm">Scrap Qty</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {stageMeta.map(stage => (
                     <TableRow key={stage.key}>
-                      <TableCell className="p-2 font-medium text-slate-700">{stage.label}</TableCell>
+                      <TableCell className="p-2 text-sm font-medium text-slate-700 sm:text-base">{stage.label}</TableCell>
                       <TableCell className="p-2">
                         <Input
                           value={String(computedQuantities[stage.key] ?? 0)}
@@ -798,11 +798,15 @@ export default function InspectionData() {
               </div>
             )}
           </CardContent>
-          <CardFooter className="flex flex-wrap items-center justify-between gap-4 px-4 py-3">
-            <div className="text-sm text-muted-foreground">
+          <CardFooter className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <div className="text-sm text-muted-foreground text-center sm:text-left">
               Итоговый Scrap: <span className="font-semibold text-emerald-700">{totalScrap}</span>
             </div>
-            <Button onClick={handleSave} disabled={isSaving || !selectedRow || !stagesCompleted} className="h-9 px-6">
+            <Button
+              onClick={handleSave}
+              disabled={isSaving || !selectedRow || !stagesCompleted}
+              className="h-9 w-full px-6 sm:w-auto"
+            >
               {isSaving ? "Saving..." : "Save"}
             </Button>
           </CardFooter>
