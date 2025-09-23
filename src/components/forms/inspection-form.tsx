@@ -1,9 +1,10 @@
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { DateInputField } from "@/components/ui/date-input";
 
 interface InspectionFormData {
   client: string;
@@ -32,7 +33,13 @@ interface InspectionFormData {
 }
 
 export function InspectionForm() {
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<InspectionFormData>();
+  const { register, handleSubmit, reset, control, formState: { errors } } = useForm<InspectionFormData>({
+    defaultValues: {
+      start_date: "",
+      end_date: "",
+      act_date: "",
+    },
+  });
   const { toast } = useToast();
 
   const onSubmit = (data: InspectionFormData) => {
@@ -316,22 +323,38 @@ export function InspectionForm() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label htmlFor="start_date">Start Date</Label>
-              <Input
-                id="start_date"
-                type="date"
-                {...register("start_date", { required: "Start Date is required" })}
+              <Controller
+                control={control}
+                name="start_date"
+                rules={{ required: "Start Date is required" }}
+                render={({ field }) => (
+                  <DateInputField
+                    id="start_date"
+                    value={field.value}
+                    onChange={field.onChange}
+                    placeholder="dd/mm/yyyy"
+                  />
+                )}
               />
               {errors.start_date && (
                 <p className="text-sm text-destructive mt-1">{errors.start_date.message}</p>
               )}
             </div>
-            
+
             <div>
               <Label htmlFor="end_date">End Date</Label>
-              <Input
-                id="end_date"
-                type="date"
-                {...register("end_date", { required: "End Date is required" })}
+              <Controller
+                control={control}
+                name="end_date"
+                rules={{ required: "End Date is required" }}
+                render={({ field }) => (
+                  <DateInputField
+                    id="end_date"
+                    value={field.value}
+                    onChange={field.onChange}
+                    placeholder="dd/mm/yyyy"
+                  />
+                )}
               />
               {errors.end_date && (
                 <p className="text-sm text-destructive mt-1">{errors.end_date.message}</p>
@@ -352,10 +375,18 @@ export function InspectionForm() {
             
             <div>
               <Label htmlFor="act_date">Act Date</Label>
-              <Input
-                id="act_date"
-                type="date"
-                {...register("act_date", { required: "Act Date is required" })}
+              <Controller
+                control={control}
+                name="act_date"
+                rules={{ required: "Act Date is required" }}
+                render={({ field }) => (
+                  <DateInputField
+                    id="act_date"
+                    value={field.value}
+                    onChange={field.onChange}
+                    placeholder="dd/mm/yyyy"
+                  />
+                )}
               />
               {errors.act_date && (
                 <p className="text-sm text-destructive mt-1">{errors.act_date.message}</p>
