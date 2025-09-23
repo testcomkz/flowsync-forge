@@ -1153,6 +1153,166 @@ export class SharePointService {
     }
   }
 
+  async updateLoadOutData(data: {
+    client: string;
+    wo_no: string;
+    batch: string;
+    load_out_date: string;
+    act_no_oper?: string;
+    act_date?: string;
+    status?: string;
+  }): Promise<boolean> {
+    try {
+      const usedInfo = await this.getUsedRangeInfo('tubing');
+      if (!usedInfo?.values?.length) {
+        console.warn('⚠️ No tubing data available to update for load out');
+        return false;
+      }
+
+      const { values, meta } = usedInfo;
+      const headersRow = Array.isArray(values[0]) ? (values[0] as unknown[]) : [];
+
+      const normalize = (value: unknown) =>
+        value === null || value === undefined ? '' : String(value).trim().toLowerCase();
+
+      const canonicalize = (header: string) =>
+        header
+          .replace(/[\s-]+/g, '_')
+          .replace(/_{2,}/g, '_');
+
+      const findColumn = (matcher: (header: string, canonical?: string) => boolean) =>
+        headersRow.findIndex(header => {
+          const normalizedHeader = normalize(header);
+          const canonicalHeader = canonicalize(normalizedHeader);
+          return matcher(normalizedHeader, canonicalHeader);
+        });
+
+      const clientIndex = findColumn(header => header.includes('client'));
+      const woIndex = findColumn(header => header.includes('wo'));
+      const batchIndex = findColumn(header => header.includes('batch'));
+
+      if (clientIndex === -1 || woIndex === -1 || batchIndex === -1) {
+        console.error('❌ Required columns (client/wo/batch) not found in tubing sheet for load out update');
+        return false;
+      }
+
+      const targetClient = normalize(data.client);
+      const targetWo = normalize(data.wo_no);
+      const targetBatch = normalize(data.batch);
+
+      const rowIndex = values.findIndex((row, idx) => {
+        if (idx === 0) return false;
+        return (
+          normalize(row[clientIndex]) === targetClient &&
+          normalize(row[woIndex]) === targetWo &&
+          normalize(row[batchIndex]) === targetBatch
+        );
+      });
+
+      if (rowIndex === -1) {
+        console.warn('⚠️ Target tubing record not found for load out update', data);
+        return false;
+      }
+
+      const updates = new Map<number, any>();
+
+      const applyValue = (predicate: (header: string, canonical?: string) => boolean, value: unknown) => {
+        const columnIndex = findColumn(predicate);
+        if (columnIndex !== -1) {
+          updates.set(columnIndex, value ?? '');
+        }
+      };
+
+      if (data.status) {
+        applyValue(header => header.includes('status'), data.status);
+      }
+
+      applyValue((header, canonical) => {
+        const c = canonical ?? header;
+        return c.includes('load_out_date') || c.includes('loadoutdate');
+      }, data.load_out_date ?? '');
+
+      applyValue((header, canonical) => {
+        const c = canonical ?? header;
+        return c.includes('act_no_oper') || c.includes('actnooper');
+      }, data.act_no_oper ?? '');
+
+      applyValue((header, canonical) => {
+        const c = canonical ?? header;
+        return c.includes('act_date') || c.includes('actdate');
+      }, data.act_date ?? '');
+
+      if (updates.size === 0) {
+        console.warn('⚠️ No matching columns found to update for load out data');
+        return true;
+      }
+
+      const sortedIndexes = Array.from(updates.keys()).sort((a, b) => a - b);
+      const rowNumber = meta.startRow + rowIndex;
+
+      type Segment = { start: number; end: number; values: any[] };
+      const segments: Segment[] = [];
+
+      let currentStart: number | null = null;
+      let currentEnd: number | null = null;
+      let currentValues: any[] = [];
+
+      for (const index of sortedIndexes) {
+        const value = updates.get(index) ?? '';
+        if (currentStart === null) {
+          currentStart = index;
+          currentEnd = index;
+          currentValues = [value];
+          continue;
+        }
+
+        if (currentEnd !== null && index === currentEnd + 1) {
+          currentEnd = index;
+          currentValues.push(value);
+        } else {
+          segments.push({ start: currentStart, end: currentEnd ?? currentStart, values: currentValues });
+          currentStart = index;
+          currentEnd = index;
+          currentValues = [value];
+        }
+      }
+
+      if (currentStart !== null) {
+        segments.push({ start: currentStart, end: currentEnd ?? currentStart, values: currentValues });
+      }
+
+      let overallSuccess = true;
+
+      for (const segment of segments) {
+        const startColNumber = meta.startCol + segment.start;
+        const endColNumber = meta.startCol + segment.end;
+        const startColLetters = this.indexToColLetters(startColNumber);
+        const endColLetters = this.indexToColLetters(endColNumber);
+        const range =
+          startColLetters === endColLetters
+            ? `${startColLetters}${rowNumber}`
+            : `${startColLetters}${rowNumber}:${endColLetters}${rowNumber}`;
+
+        const segmentValues = [segment.values.slice()];
+        const writeSuccess = await this.writeExcelData('tubing', range, segmentValues);
+        if (!writeSuccess) {
+          overallSuccess = false;
+          break;
+        }
+      }
+
+      if (overallSuccess) {
+        localStorage.removeItem('sharepoint_cached_tubing');
+        localStorage.removeItem('sharepoint_cache_timestamp_tubing');
+      }
+
+      return overallSuccess;
+    } catch (error) {
+      console.error('❌ Error updating load out data:', error);
+      return false;
+    }
+  }
+
   async updateTubingInspectionData(data: {
     client: string;
     wo_no: string;

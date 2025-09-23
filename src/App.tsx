@@ -8,6 +8,7 @@ import WOForm from "./pages/WOForm";
 import EditRecords from "./pages/EditRecords";
 import SharePointViewer from "./pages/SharePointViewer";
 import InspectionData from "./pages/InspectionData";
+import LoadOut from "./pages/LoadOut";
 import "./index.css";
 
 const router = createBrowserRouter([
@@ -34,6 +35,10 @@ const router = createBrowserRouter([
   {
     path: "/inspection-data",
     element: <InspectionData />,
+  },
+  {
+    path: "/load-out",
+    element: <LoadOut />,
   },
 ]);
 
