@@ -70,15 +70,6 @@ const toDateInputValue = (value: unknown) => {
   return "";
 };
 
-const fromDateInputValue = (value: string | null | undefined) => {
-  if (!value) return "";
-  const isoValue = toDateInputValue(value);
-  if (!isoValue) return "";
-  const [year, month, day] = isoValue.split("-");
-  if (!year || !month || !day) return "";
-  return `${day}/${month}/${year}`;
-};
-
 // Date input is provided by shared component `@/components/ui/date-input` now
 
 export default function LoadOut() {
