@@ -1,12 +1,16 @@
+import type { ChangeEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { format } from "date-fns";
+import { ArrowLeft, Calendar as CalendarIcon, Truck } from "lucide-react";
 import { Header } from "@/components/layout/Header";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Truck } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import { useSharePoint } from "@/contexts/SharePointContext";
 import { useToast } from "@/hooks/use-toast";
 import { useSharePointInstantData } from "@/hooks/useInstantData";
@@ -68,6 +72,171 @@ const toDateInputValue = (value: unknown) => {
 
   return "";
 };
+
+const fromDateInputValue = (value: string | null | undefined) => {
+  if (!value) return "";
+  const isoValue = toDateInputValue(value);
+  if (!isoValue) return "";
+  const [year, month, day] = isoValue.split("-");
+  if (!year || !month || !day) return "";
+  return `${day}/${month}/${year}`;
+};
+
+const parseDateInput = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const numericOnlyMatch = trimmed.match(/^(\d{8})$/);
+  if (numericOnlyMatch) {
+    const digits = numericOnlyMatch[1];
+    const day = Number(digits.slice(0, 2));
+    const month = Number(digits.slice(2, 4));
+    const year = Number(digits.slice(4));
+    const date = new Date(year, month - 1, day);
+    if (date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day) {
+      return format(date, "yyyy-MM-dd");
+    }
+    return null;
+  }
+
+  const normalized = trimmed.replace(/[.-]/g, "/").replace(/\s+/g, "");
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length !== 3) {
+    return null;
+  }
+
+  let year: number;
+  let month: number;
+  let day: number;
+
+  if (parts[0].length === 4) {
+    year = Number(parts[0]);
+    month = Number(parts[1]);
+    day = Number(parts[2]);
+  } else if (parts[2].length === 4) {
+    day = Number(parts[0]);
+    month = Number(parts[1]);
+    year = Number(parts[2]);
+  } else {
+    return null;
+  }
+
+  if (!Number.isFinite(day) || !Number.isFinite(month) || !Number.isFinite(year)) {
+    return null;
+  }
+
+  if (year < 100) {
+    year += year >= 70 ? 1900 : 2000;
+  }
+
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return null;
+  }
+
+  return format(date, "yyyy-MM-dd");
+};
+
+const toDateObject = (value: string) => {
+  if (!value) return undefined;
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return undefined;
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return undefined;
+  }
+  return date;
+};
+
+interface DateInputFieldProps {
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+}
+
+function DateInputField({ value, onChange, disabled, placeholder }: DateInputFieldProps) {
+  const [inputValue, setInputValue] = useState(fromDateInputValue(value));
+  const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    setInputValue(fromDateInputValue(value));
+  }, [value]);
+
+  const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const rawValue = event.target.value;
+    setInputValue(rawValue);
+
+    const parsed = parseDateInput(rawValue);
+    if (parsed === "") {
+      onChange("");
+    } else if (parsed) {
+      onChange(parsed);
+    } else {
+      onChange("");
+    }
+  };
+
+  const handleBlur = () => {
+    const parsed = parseDateInput(inputValue);
+    if (parsed && parsed !== "") {
+      setInputValue(fromDateInputValue(parsed));
+      onChange(parsed);
+    }
+  };
+
+  const handleSelect = (date: Date | undefined) => {
+    if (!date) {
+      setInputValue("");
+      onChange("");
+      return;
+    }
+
+    const isoValue = format(date, "yyyy-MM-dd");
+    setInputValue(format(date, "dd/MM/yyyy"));
+    onChange(isoValue);
+    setIsOpen(false);
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <Input
+        value={inputValue}
+        onChange={handleInputChange}
+        onBlur={handleBlur}
+        placeholder={placeholder}
+        disabled={disabled}
+        inputMode="numeric"
+      />
+      <Popover open={isOpen} onOpenChange={setIsOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-10 w-10"
+            disabled={disabled}
+          >
+            <CalendarIcon className="h-4 w-4" />
+            <span className="sr-only">Выбрать дату</span>
+          </Button>
+        </PopoverTrigger>
+        {!disabled && (
+          <PopoverContent align="end" className="w-auto p-0">
+            <Calendar
+              mode="single"
+              selected={toDateObject(value)}
+              onSelect={handleSelect}
+              initialFocus
+            />
+          </PopoverContent>
+        )}
+      </Popover>
+    </div>
+  );
+}
 
 export default function LoadOut() {
   const navigate = useNavigate();
@@ -377,11 +546,11 @@ export default function LoadOut() {
 
                   <div className="space-y-2">
                     <Label>Load Out Date</Label>
-                    <Input
-                      type="date"
+                    <DateInputField
                       value={loadOutDate}
-                      onChange={event => setLoadOutDate(event.target.value)}
+                      onChange={setLoadOutDate}
                       disabled={isFormDisabled || !selectedBatch}
+                      placeholder="dd/mm/yyyy"
                     />
                   </div>
 
@@ -397,11 +566,11 @@ export default function LoadOut() {
 
                   <div className="space-y-2">
                     <Label>AVR Date</Label>
-                    <Input
-                      type="date"
+                    <DateInputField
                       value={actDate}
-                      onChange={event => setActDate(event.target.value)}
+                      onChange={setActDate}
                       disabled={isFormDisabled || !selectedBatch}
+                      placeholder="dd/mm/yyyy"
                     />
                   </div>
                 </div>
