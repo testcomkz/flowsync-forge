@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Input } from "@/components/ui/input";
 import { Loader2, FileSpreadsheet, Users, Briefcase, Database, ArrowLeft, Info, Filter } from "lucide-react";
 import { useSharePoint } from "@/contexts/SharePointContext";
 import { useToast } from "@/hooks/use-toast";
@@ -247,6 +248,9 @@ const SharePointViewer: React.FC = () => {
   const [selectedWorkOrder, setSelectedWorkOrder] = useState<WorkOrderEntry | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<BatchEntry | null>(null);
   const [reportBatch, setReportBatch] = useState<BatchEntry | null>(null);
+  const [clientSearchTerm, setClientSearchTerm] = useState('');
+  const [workOrderSearchTerm, setWorkOrderSearchTerm] = useState('');
+  const [batchSearchTerm, setBatchSearchTerm] = useState('');
   const { toast } = useToast();
   const { isConnected, isConnecting, connect, disconnect, error, cachedClients, cachedWorkOrders } = useSharePoint();
   const navigate = useNavigate();
@@ -446,9 +450,26 @@ const SharePointViewer: React.FC = () => {
     }
   }, [selectedClientFilter, uniqueClients]);
 
+  const filteredClientSummaries = useMemo(() => {
+    const term = clientSearchTerm.trim().toLowerCase();
+    if (!term) {
+      return clientSummaries;
+    }
+    return clientSummaries.filter(summary => summary.client.toLowerCase().includes(term));
+  }, [clientSummaries, clientSearchTerm]);
+
   const filteredWorkOrders = useMemo(() => {
-    return workOrderEntries.filter(entry => selectedClientFilter === 'all' || entry.client === selectedClientFilter);
-  }, [selectedClientFilter, workOrderEntries]);
+    const term = workOrderSearchTerm.trim().toLowerCase();
+    return workOrderEntries.filter(entry => {
+      if (selectedClientFilter !== 'all' && entry.client !== selectedClientFilter) {
+        return false;
+      }
+      if (!term) {
+        return true;
+      }
+      return (entry.workOrderNumber || '').toLowerCase().includes(term);
+    });
+  }, [selectedClientFilter, workOrderEntries, workOrderSearchTerm]);
 
   const sortedWorkOrders = useMemo(() => {
     const list = [...filteredWorkOrders];
@@ -472,16 +493,24 @@ const SharePointViewer: React.FC = () => {
   }, [filteredWorkOrders, workOrderSort]);
 
   const filteredBatches = useMemo(() => {
+    const term = batchSearchTerm.trim().toLowerCase();
     return batchEntries.filter(entry => {
       if (selectedClientFilter !== 'all' && entry.client !== selectedClientFilter) {
         return false;
       }
       if (batchStatusFilter === 'all') {
+        if (!term) {
+          return true;
+        }
+      } else if (entry.statusKey !== batchStatusFilter) {
+        return false;
+      }
+      if (!term) {
         return true;
       }
-      return entry.statusKey === batchStatusFilter;
+      return (entry.batchNumber || '').toLowerCase().includes(term);
     });
-  }, [batchEntries, batchStatusFilter, selectedClientFilter]);
+  }, [batchEntries, batchStatusFilter, selectedClientFilter, batchSearchTerm]);
 
   const sortedBatches = useMemo(() => {
     return [...filteredBatches].sort((a, b) => {
@@ -589,12 +618,12 @@ const SharePointViewer: React.FC = () => {
         </Card>
         <Card className="border-2 shadow-lg hover:shadow-xl transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-            <CardTitle className="text-base font-semibold">Work Registry Info</CardTitle>
+            <CardTitle className="text-base font-semibold">Work Order Info</CardTitle>
             <Briefcase className="h-5 w-5 text-green-600" />
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-green-600">{totalWorkOrders}</div>
-            <p className="text-sm text-muted-foreground">Active work orders without completed batches</p>
+            <p className="text-sm text-muted-foreground">Active Work Orders</p>
           </CardContent>
         </Card>
         <Card className="border-2 shadow-lg hover:shadow-xl transition-shadow">
@@ -612,7 +641,7 @@ const SharePointViewer: React.FC = () => {
       <Tabs defaultValue="clients" className="space-y-6">
         <TabsList className="grid w-full grid-cols-3 border-2">
           <TabsTrigger value="clients" className="font-semibold">Clients</TabsTrigger>
-          <TabsTrigger value="workorders" className="font-semibold">Work Registry Info</TabsTrigger>
+          <TabsTrigger value="workorders" className="font-semibold">Work Order Info</TabsTrigger>
           <TabsTrigger value="batches" className="font-semibold">Batch Info</TabsTrigger>
         </TabsList>
 
@@ -627,10 +656,20 @@ const SharePointViewer: React.FC = () => {
                 Unique clients with the number of active work orders and batches
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              {clientSummaries.length > 0 ? (
+            <CardContent className="space-y-4">
+              <div className="space-y-2 md:text-right">
+                <div className="text-sm text-muted-foreground">Search clients</div>
+                <Input
+                  value={clientSearchTerm}
+                  onChange={event => setClientSearchTerm(event.target.value)}
+                  placeholder="Search by client name"
+                  className="w-full md:w-[260px]"
+                />
+              </div>
+
+              {filteredClientSummaries.length > 0 ? (
                 <div className="space-y-3">
-                  {clientSummaries.map(summary => (
+                  {filteredClientSummaries.map(summary => (
                     <div
                       key={summary.client}
                       className="flex flex-col gap-3 rounded-lg border px-4 py-3 shadow-sm md:flex-row md:items-center md:justify-between"
@@ -652,6 +691,10 @@ const SharePointViewer: React.FC = () => {
                     </div>
                   ))}
                 </div>
+              ) : clientSummaries.length > 0 ? (
+                <div className="text-center py-10 text-muted-foreground">
+                  No clients match the search term.
+                </div>
               ) : (
                 <div className="text-center py-10 text-muted-foreground">
                   No client data available. Use the main dashboard to sync SharePoint data.
@@ -666,14 +709,14 @@ const SharePointViewer: React.FC = () => {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-xl">
                 <Briefcase className="h-6 w-6 text-green-600" />
-                Work Registry Info
+                Work Order Info
               </CardTitle>
               <CardDescription className="text-base">
-                Sort work orders by client or by batch count. Completed batches are hidden automatically.
+                Sort work orders by client or by batch count.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Filter className="h-4 w-4" />
@@ -704,6 +747,15 @@ const SharePointViewer: React.FC = () => {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="space-y-2 md:text-right">
+                  <div className="text-sm text-muted-foreground">Search work orders</div>
+                  <Input
+                    value={workOrderSearchTerm}
+                    onChange={event => setWorkOrderSearchTerm(event.target.value)}
+                    placeholder="Search by work order number"
+                    className="w-full md:w-[220px]"
+                  />
                 </div>
               </div>
 
@@ -761,22 +813,33 @@ const SharePointViewer: React.FC = () => {
                 Batch Info
               </CardTitle>
               <CardDescription className="text-base">
-                View Arrived and Inspection Done batches. Completed batches are hidden automatically.
+                View Arrived and Inspection Done batches.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="space-y-2">
-                <div className="text-sm text-muted-foreground">Show batches by status</div>
-                <ToggleGroup
-                  type="single"
-                  value={batchStatusFilter}
-                  onValueChange={value => value && setBatchStatusFilter(value as 'all' | 'arrived' | 'inspection_done')}
-                  className="rounded-md border bg-muted/40 p-1 md:inline-flex"
-                >
-                  <ToggleGroupItem value="all" className="flex-1">All</ToggleGroupItem>
-                  <ToggleGroupItem value="arrived" className="flex-1">Arrived</ToggleGroupItem>
-                  <ToggleGroupItem value="inspection_done" className="flex-1">Inspection Done</ToggleGroupItem>
-                </ToggleGroup>
+              <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                <div className="space-y-2">
+                  <div className="text-sm text-muted-foreground">Show batches by status</div>
+                  <ToggleGroup
+                    type="single"
+                    value={batchStatusFilter}
+                    onValueChange={value => value && setBatchStatusFilter(value as 'all' | 'arrived' | 'inspection_done')}
+                    className="rounded-md border bg-muted/40 p-1 md:inline-flex"
+                  >
+                    <ToggleGroupItem value="all" className="flex-1">All</ToggleGroupItem>
+                    <ToggleGroupItem value="arrived" className="flex-1">Arrived</ToggleGroupItem>
+                    <ToggleGroupItem value="inspection_done" className="flex-1">Inspection Done</ToggleGroupItem>
+                  </ToggleGroup>
+                </div>
+                <div className="space-y-2 md:text-right">
+                  <div className="text-sm text-muted-foreground">Search batches</div>
+                  <Input
+                    value={batchSearchTerm}
+                    onChange={event => setBatchSearchTerm(event.target.value)}
+                    placeholder="Search by batch number"
+                    className="w-full md:w-[220px]"
+                  />
+                </div>
               </div>
 
               <div className="overflow-hidden rounded-lg border">
@@ -814,7 +877,7 @@ const SharePointViewer: React.FC = () => {
                     ) : (
                       <TableRow>
                         <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
-                          No batches match the selected filters. Completed batches are excluded.
+                          No batches match the selected filters.
                         </TableCell>
                       </TableRow>
                     )}
