@@ -150,6 +150,8 @@ export default function InspectionData() {
   const [isSaving, setIsSaving] = useState(false);
   // track initialization to avoid overwriting user's edits when SharePoint cache refreshes
   const [initializedRowKey, setInitializedRowKey] = useState<string | null>(null);
+  // Track if inspection stages are filled to enable inspection data
+  const [stagesCompleted, setStagesCompleted] = useState(false);
 
   const arrivedBatches = useMemo(() => {
     if (!Array.isArray(tubingData) || tubingData.length < 2) {
@@ -402,6 +404,13 @@ export default function InspectionData() {
       return Number.isFinite(n) ? sum + n : sum;
     }, 0);
   }, [scrapInputs]);
+
+  // Check if stages are completed (all scrap fields filled; '0' is allowed)
+  useEffect(() => {
+    const requiredKeys: ScrapKey[] = ["rattling", "external", "jetting", "mpi", "drift", "emi"];
+    const allFilled = requiredKeys.every(k => scrapInputs[k] !== "");
+    setStagesCompleted(!!selectedRow && allFilled);
+  }, [scrapInputs, selectedRow]);
   const handleScrapChange = (key: ScrapKey, value: string) => {
     const sanitized = sanitizeDigits(value);
     const prevQtyMap: Record<ScrapKey, number> = {
@@ -532,16 +541,19 @@ export default function InspectionData() {
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[1.05fr_1.45fr]">
-          <Card className="h-full border-blue-100 shadow-sm">
-            <CardHeader className="border-b border-blue-100 pb-4">
-              <CardTitle className="text-lg font-semibold text-blue-900">Batch Selection</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-5 pt-4">
+        <div className="grid gap-2 lg:grid-cols-[340px_minmax(0,1fr)] items-stretch max-w-[1024px] mx-auto">
+        <div className="lg:col-start-1 lg:row-start-1 flex flex-col gap-1 h-full">
+        {/* Step 1: Batch Selection */}
+        <Card className="border-blue-100 shadow-sm self-start">
+          <CardHeader className="border-b border-blue-100 px-4 py-3">
+            <CardTitle className="text-lg font-semibold text-blue-900">Batch Selection</CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 pt-3">
+            <div className="grid gap-3 sm:grid-cols-3">
               <div className="space-y-2">
                 <Label className="text-sm">Client</Label>
                 <Select value={selectedClient || undefined} onValueChange={value => setSelectedClient(value)}>
-                  <SelectTrigger className="h-9">
+                  <SelectTrigger className="h-8 px-2 text-sm">
                     <SelectValue placeholder="Choose client" />
                   </SelectTrigger>
                   <SelectContent>
@@ -564,7 +576,7 @@ export default function InspectionData() {
                   onValueChange={value => setSelectedWorkOrder(value)}
                   disabled={!selectedClient}
                 >
-                  <SelectTrigger className="h-9">
+                  <SelectTrigger className="h-8 px-2 text-sm">
                     <SelectValue placeholder="Choose work order" />
                   </SelectTrigger>
                   <SelectContent>
@@ -587,7 +599,7 @@ export default function InspectionData() {
                   onValueChange={value => setSelectedBatch(value)}
                   disabled={!selectedClient || !selectedWorkOrder}
                 >
-                  <SelectTrigger className="h-9">
+                  <SelectTrigger className="h-8 px-2 text-sm">
                     <SelectValue placeholder="Choose arrived batch" />
                   </SelectTrigger>
                   <SelectContent>
@@ -602,117 +614,25 @@ export default function InspectionData() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
 
-              {selectedRow && (
-                <div className="flex items-start justify-between rounded-lg border border-blue-100 bg-blue-50/80 p-3 text-sm text-blue-900">
-                  <div>
-                    <p className="font-semibold">Batch Info</p>
-                    <p>Qty: {initialQty}</p>
-                  </div>
-                  <span className="ml-4 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium uppercase tracking-wide text-blue-800">
-                    {selectedRow.status || "Arrived"}
-                  </span>
+            {selectedRow && (
+              <div className="mt-3 flex items-start justify-between rounded-lg border border-blue-100 bg-blue-50/80 p-2 text-xs text-blue-900">
+                <div>
+                  <p className="font-semibold">Batch Info</p>
+                  <p>Qty: {initialQty}</p>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="h-full border-emerald-100 shadow-sm">
-            <CardHeader className="border-b border-emerald-100 pb-4">
-              <CardTitle className="text-lg font-semibold text-emerald-900">Inspection Data</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6 pt-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="class1">Class 1</Label>
-                  <Input
-                    id="class1"
-                    value={class1}
-                    onChange={event => setClass1(event.target.value)}
-                    placeholder="Enter Class 1"
-                    className="h-9 text-sm"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="class2">Class 2</Label>
-                  <Input
-                    id="class2"
-                    value={class2}
-                    onChange={event => setClass2(event.target.value)}
-                    placeholder="Enter Class 2"
-                    className="h-9 text-sm"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="class3">Class 3</Label>
-                  <Input
-                    id="class3"
-                    value={class3}
-                    onChange={event => setClass3(event.target.value)}
-                    placeholder="Enter Class 3"
-                    className="h-9 text-sm"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="repair">Repair</Label>
-                  <Input
-                    id="repair"
-                    value={repairValue}
-                    onChange={event => setRepairValue(sanitizeDigits(event.target.value))}
-                    placeholder="0"
-                    inputMode="numeric"
-                    className="h-9 text-sm"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="startDate">Start Date</Label>
-                  <DateInputField
-                    id="startDate"
-                    value={startDate}
-                    onChange={setStartDate}
-                    className="h-9 text-sm"
-                    placeholder="dd/mm/yyyy"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="endDate">End Date</Label>
-                  <DateInputField
-                    id="endDate"
-                    value={endDate}
-                    onChange={setEndDate}
-                    className="h-9 text-sm"
-                    placeholder="dd/mm/yyyy"
-                  />
-                </div>
-                <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="scrap">Scrap</Label>
-                  <Input
-                    id="scrap"
-                    value={scrapValue}
-                    onChange={event => setScrapValue(sanitizeDigits(event.target.value))}
-                    placeholder="0"
-                    inputMode="numeric"
-                    className="h-9 text-sm"
-                  />
-                </div>
+                <span className="ml-4 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium uppercase tracking-wide text-blue-800">
+                  {selectedRow.status || "Arrived"}
+                </span>
               </div>
+            )}
+          </CardContent>
+        </Card>
 
-              {selectedRow && (
-                <div className="rounded-lg border border-emerald-100 bg-emerald-50/70 p-3 text-sm text-emerald-900">
-                  <p className="font-semibold">Current selection</p>
-                  <div className="mt-1 flex flex-wrap gap-4">
-                    <span>Client: {selectedRow.client}</span>
-                    <span>WO: {selectedRow.wo_no}</span>
-                    <span>Batch: {selectedRow.batch}</span>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card className="mt-4 border-slate-200 shadow-sm">
-          <CardHeader className="flex flex-col gap-2 border-b border-slate-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
+        {/* Step 2: Inspection Stages */}
+        <Card className={`border-slate-200 shadow-sm h-full flex flex-col ${!selectedRow ? 'opacity-50' : ''}`}>
+          <CardHeader className="flex flex-col gap-1 border-b border-slate-200 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="text-lg font-semibold text-slate-900">Inspection Stages</CardTitle>
             {selectedRow && (
               <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
@@ -725,10 +645,15 @@ export default function InspectionData() {
               </div>
             )}
           </CardHeader>
-          <CardContent className="space-y-4 pt-4">
+          <CardContent className="space-y-2 p-3 pt-2 flex-1">
+            {!selectedRow && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-center text-xs text-amber-800">
+                Выберите партию в разделе "Batch Selection" для заполнения этапов инспекции
+              </div>
+            )}
             <div className="overflow-x-auto rounded-lg border border-slate-200">
               <Table>
-                <TableHeader className="bg-slate-50">
+                <TableHeader className="bg-slate-50 [&_th]:h-9 [&_th]:px-2.5 [&_th]:py-1.5">
                   <TableRow>
                     <TableHead className="w-1/3 text-sm font-semibold text-slate-600">Stage</TableHead>
                     <TableHead className="text-sm font-semibold text-slate-600">Qty</TableHead>
@@ -738,22 +663,23 @@ export default function InspectionData() {
                 <TableBody>
                   {stageMeta.map(stage => (
                     <TableRow key={stage.key}>
-                      <TableCell className="font-medium text-slate-700">{stage.label}</TableCell>
-                      <TableCell>
+                      <TableCell className="p-2 font-medium text-slate-700">{stage.label}</TableCell>
+                      <TableCell className="p-2">
                         <Input
                           value={String(computedQuantities[stage.key] ?? 0)}
                           disabled
-                          className="h-9 text-sm"
+                          className="h-8 text-sm px-2 bg-gray-100 text-gray-500 border-gray-300 cursor-not-allowed"
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="p-2">
                         {stage.scrapKey ? (
                           <Input
                             value={scrapInputs[stage.scrapKey] ?? ""}
                             onChange={e => handleScrapChange(stage.scrapKey as ScrapKey, e.target.value)}
                             inputMode="numeric"
                             placeholder="0"
-                            className="h-9 text-sm"
+                            disabled={!selectedRow}
+                            className={`h-8 text-sm px-2 ${!selectedRow ? 'bg-gray-100 text-gray-500 border-gray-300 cursor-not-allowed' : ''}`}
                           />
                         ) : (
                           <span className="text-muted-foreground">—</span>
@@ -765,15 +691,124 @@ export default function InspectionData() {
               </Table>
             </div>
           </CardContent>
-          <CardFooter className="flex flex-wrap items-center justify-between gap-4">
+        </Card>
+        </div>
+
+        {/* Step 3: Inspection Data */}
+        <Card className={`border-emerald-100 shadow-sm lg:col-start-2 lg:row-span-2 max-w-[760px] h-full flex flex-col ${!stagesCompleted ? 'opacity-50' : ''}`}>
+          <CardHeader className="border-b border-emerald-100 px-4 py-3">
+            <CardTitle className="text-lg font-semibold text-emerald-900">Inspection Data</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 p-4 pt-3 flex-1">
+            {!stagesCompleted && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-center text-sm text-amber-800">
+                Заполните этапы инспекции для активации полей данных
+              </div>
+            )}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="class1">Class 1</Label>
+                <Input
+                  id="class1"
+                  value={class1}
+                  onChange={event => setClass1(event.target.value)}
+                  placeholder="Enter Class 1"
+                  disabled={!stagesCompleted}
+                  className={`h-8 text-sm ${!stagesCompleted ? 'bg-gray-100 text-gray-500 border-gray-300 cursor-not-allowed' : ''}`}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="class2">Class 2</Label>
+                <Input
+                  id="class2"
+                  value={class2}
+                  onChange={event => setClass2(event.target.value)}
+                  placeholder="Enter Class 2"
+                  disabled={!stagesCompleted}
+                  className={`h-8 text-sm ${!stagesCompleted ? 'bg-gray-100 text-gray-500 border-gray-300 cursor-not-allowed' : ''}`}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="class3">Class 3</Label>
+                <Input
+                  id="class3"
+                  value={class3}
+                  onChange={event => setClass3(event.target.value)}
+                  placeholder="Enter Class 3"
+                  disabled={!stagesCompleted}
+                  className={`h-8 text-sm ${!stagesCompleted ? 'bg-gray-100 text-gray-500 border-gray-300 cursor-not-allowed' : ''}`}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="repair">Repair</Label>
+                <Input
+                  id="repair"
+                  value={repairValue}
+                  onChange={event => setRepairValue(sanitizeDigits(event.target.value))}
+                  placeholder="0"
+                  inputMode="numeric"
+                  disabled={!stagesCompleted}
+                  className={`h-8 text-sm ${!stagesCompleted ? 'bg-gray-100 text-gray-500 border-gray-300 cursor-not-allowed' : ''}`}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="startDate">Start Date</Label>
+                <DateInputField
+                  id="startDate"
+                  value={startDate}
+                  onChange={setStartDate}
+                  disabled={!stagesCompleted}
+                  className="h-8 text-sm"
+                  placeholder="dd/mm/yyyy"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="endDate">End Date</Label>
+                <DateInputField
+                  id="endDate"
+                  value={endDate}
+                  onChange={setEndDate}
+                  disabled={!stagesCompleted}
+                  className="h-8 text-sm"
+                  placeholder="dd/mm/yyyy"
+                />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="scrap">Scrap</Label>
+                <Input
+                  id="scrap"
+                  value={scrapValue}
+                  onChange={event => setScrapValue(sanitizeDigits(event.target.value))}
+                  placeholder="0"
+                  inputMode="numeric"
+                  disabled={!stagesCompleted}
+                  className={`h-8 text-sm ${!stagesCompleted ? 'bg-gray-100 text-gray-500 border-gray-300 cursor-not-allowed' : ''}`}
+                />
+              </div>
+            </div>
+
+            {selectedRow && (
+              <div className="rounded-lg border border-emerald-100 bg-emerald-50/70 p-3 text-sm text-emerald-900">
+                <p className="font-semibold">Current selection</p>
+                <div className="mt-1 flex flex-wrap gap-4">
+                  <span>Client: {selectedRow.client}</span>
+                  <span>WO: {selectedRow.wo_no}</span>
+                  <span>Batch: {selectedRow.batch}</span>
+                </div>
+              </div>
+            )}
+          </CardContent>
+          <CardFooter className="flex flex-wrap items-center justify-between gap-4 px-4 py-3">
             <div className="text-sm text-muted-foreground">
               Итоговый Scrap: <span className="font-semibold text-emerald-700">{totalScrap}</span>
             </div>
-            <Button onClick={handleSave} disabled={isSaving || !selectedRow} className="h-9 px-6">
+            <Button onClick={handleSave} disabled={isSaving || !selectedRow || !stagesCompleted} className="h-9 px-6">
               {isSaving ? "Saving..." : "Save"}
             </Button>
           </CardFooter>
         </Card>
+
+        </div>
       </div>
     </div>
   );

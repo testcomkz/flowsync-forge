@@ -445,7 +445,7 @@ export default function LoadOut() {
                       onChange={event => handleActNoOperChange(event.target.value)}
                       placeholder="Enter AVR"
                       disabled={isFormDisabled || !selectedBatch}
-                      className="h-10 rounded-xl border-sky-200 bg-white/90 text-sky-900 shadow-sm transition focus-visible:border-sky-400 focus-visible:ring-sky-200 disabled:opacity-70"
+                      className="h-11 w-full rounded-md border border-gray-300 bg-white px-3 text-gray-900 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-blue-500 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500 disabled:border-gray-300"
                     />
                   </div>
 

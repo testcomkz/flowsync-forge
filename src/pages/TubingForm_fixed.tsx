@@ -418,7 +418,7 @@ export default function TubingForm() {
                     id="batch"
                     value={nextBatch || formData.batch}
                     readOnly
-                    className="bg-gray-50 border-2"
+                    className="h-11 w-full rounded-md border border-gray-300 bg-gray-100 px-3 text-gray-500 shadow-sm cursor-not-allowed"
                     placeholder="Auto-calculated"
                   />
                 </div>
@@ -463,6 +463,7 @@ export default function TubingForm() {
                     onChange={(e) => handleInputChange("pipe_from", e.target.value)}
                     placeholder="Auto-calculated"
                     readOnly
+                    className="h-11 w-full rounded-md border border-gray-300 bg-gray-100 px-3 text-gray-500 shadow-sm cursor-not-allowed"
                   />
                 </div>
 
@@ -474,6 +475,7 @@ export default function TubingForm() {
                     onChange={(e) => handleInputChange("pipe_to", e.target.value)}
                     placeholder="Auto-calculated"
                     readOnly
+                    className="h-11 w-full rounded-md border border-gray-300 bg-gray-100 px-3 text-gray-500 shadow-sm cursor-not-allowed"
                   />
                 </div>
               </div>

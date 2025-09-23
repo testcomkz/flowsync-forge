@@ -353,7 +353,7 @@ export default function WOForm() {
                     id="key_col"
                     value={formData.key_col}
                     placeholder="Auto-generated based on WO, Client, Type, Diameter"
-                    className="border-2 focus:border-blue-500 h-11 bg-gray-50"
+                    className="h-11 w-full rounded-md border border-gray-300 bg-gray-100 px-3 text-gray-500 shadow-sm cursor-not-allowed"
                     readOnly
                   />
                   <p className="text-xs text-blue-600 font-medium">
