@@ -505,7 +505,31 @@ export default function InspectionData() {
       if (success) {
         toast({ title: "Успешно", description: "Инспекция сохранена и партия обновлена", variant: "default" });
         setProcessedKeys(prev => (prev.includes(selectedRow.key) ? prev : [...prev, selectedRow.key]));
+        
+        // Reset all form state completely
+        setSelectedRow(null);
+        setSelectedClient("");
+        setSelectedWorkOrder("");
         setSelectedBatch("");
+        
+        // Reset form fields
+        setClass1("");
+        setClass2("");
+        setClass3("");
+        setRepairValue("");
+        setScrapValue("");
+        setStartDate("");
+        setEndDate("");
+        setScrapInputs({
+          rattling: "",
+          external: "",
+          jetting: "",
+          mpi: "",
+          drift: "",
+          emi: ""
+        });
+        setInitialQty(0);
+        setStagesCompleted(false);
 
         if (sharePointService && refreshDataInBackground) {
           try {
@@ -541,7 +565,7 @@ export default function InspectionData() {
           </div>
         </div>
 
-        <div className="grid gap-2 lg:grid-cols-[340px_minmax(0,1fr)] items-stretch max-w-[1024px] mx-auto">
+        <div className="grid gap-2 lg:grid-cols-[340px_minmax(0,1fr)] items-start max-w-[1024px] mx-auto">
         <div className="lg:col-start-1 lg:row-start-1 flex flex-col gap-1 h-full">
         {/* Step 1: Batch Selection */}
         <Card className="border-blue-100 shadow-sm self-start">
@@ -549,11 +573,11 @@ export default function InspectionData() {
             <CardTitle className="text-lg font-semibold text-blue-900">Batch Selection</CardTitle>
           </CardHeader>
           <CardContent className="p-4 pt-3">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
               <div className="space-y-2">
                 <Label className="text-sm">Client</Label>
-                <Select value={selectedClient || undefined} onValueChange={value => setSelectedClient(value)}>
-                  <SelectTrigger className="h-8 px-2 text-sm">
+                <Select value={selectedClient || ""} onValueChange={value => setSelectedClient(value || "")}>
+                  <SelectTrigger className="h-8 px-2 text-sm w-full">
                     <SelectValue placeholder="Choose client" />
                   </SelectTrigger>
                   <SelectContent>
@@ -572,11 +596,11 @@ export default function InspectionData() {
               <div className="space-y-2">
                 <Label className="text-sm">Work Order</Label>
                 <Select
-                  value={selectedWorkOrder || undefined}
-                  onValueChange={value => setSelectedWorkOrder(value)}
+                  value={selectedWorkOrder || ""}
+                  onValueChange={value => setSelectedWorkOrder(value || "")}
                   disabled={!selectedClient}
                 >
-                  <SelectTrigger className="h-8 px-2 text-sm">
+                  <SelectTrigger className="h-8 px-2 text-sm w-full">
                     <SelectValue placeholder="Choose work order" />
                   </SelectTrigger>
                   <SelectContent>
@@ -595,11 +619,11 @@ export default function InspectionData() {
               <div className="space-y-2">
                 <Label className="text-sm">Batch</Label>
                 <Select
-                  value={selectedBatch || undefined}
-                  onValueChange={value => setSelectedBatch(value)}
+                  value={selectedBatch || ""}
+                  onValueChange={value => setSelectedBatch(value || "")}
                   disabled={!selectedClient || !selectedWorkOrder}
                 >
-                  <SelectTrigger className="h-8 px-2 text-sm">
+                  <SelectTrigger className="h-8 px-2 text-sm w-full">
                     <SelectValue placeholder="Choose arrived batch" />
                   </SelectTrigger>
                   <SelectContent>
@@ -695,17 +719,17 @@ export default function InspectionData() {
         </div>
 
         {/* Step 3: Inspection Data */}
-        <Card className={`border-emerald-100 shadow-sm lg:col-start-2 lg:row-span-2 max-w-[760px] h-full flex flex-col ${!stagesCompleted ? 'opacity-50' : ''}`}>
-          <CardHeader className="border-b border-emerald-100 px-4 py-3">
+        <Card className={`border-emerald-100 shadow-sm lg:col-start-2 lg:row-start-1 max-w-[760px] self-start ${!stagesCompleted ? 'opacity-50' : ''}`}>
+          <CardHeader className="border-b border-emerald-100 px-3 py-2">
             <CardTitle className="text-lg font-semibold text-emerald-900">Inspection Data</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4 p-4 pt-3 flex-1">
+          <CardContent className="space-y-1 p-2 pt-2">
             {!stagesCompleted && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-center text-sm text-amber-800">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-center text-xs text-amber-800">
                 Заполните этапы инспекции для активации полей данных
               </div>
             )}
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="class1">Class 1</Label>
                 <Input
@@ -798,7 +822,7 @@ export default function InspectionData() {
               </div>
             )}
           </CardContent>
-          <CardFooter className="flex flex-wrap items-center justify-between gap-4 px-4 py-3">
+          <CardFooter className="flex flex-wrap items-center justify-between gap-4 px-3 py-2">
             <div className="text-sm text-muted-foreground">
               Итоговый Scrap: <span className="font-semibold text-emerald-700">{totalScrap}</span>
             </div>
