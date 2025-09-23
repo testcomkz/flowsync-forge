@@ -5,9 +5,12 @@ import { componentTagger } from "lovable-tagger";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
+  // Use relative base in production so Electron can load assets via file://
+  base: mode === 'production' ? './' : '/',
   server: {
     host: "::",
     port: 8080,
+    strictPort: true,
   },
   plugins: [
     react(),

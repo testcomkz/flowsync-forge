@@ -5,6 +5,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { DateInputField } from "@/components/ui/date-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ArrowLeft, ClipboardCheck } from "lucide-react";
@@ -665,22 +666,22 @@ export default function InspectionData() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="startDate">Start Date</Label>
-                  <Input
+                  <DateInputField
                     id="startDate"
-                    type="date"
                     value={startDate}
-                    onChange={event => setStartDate(event.target.value)}
+                    onChange={setStartDate}
                     className="h-9 text-sm"
+                    placeholder="dd/mm/yyyy"
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="endDate">End Date</Label>
-                  <Input
+                  <DateInputField
                     id="endDate"
-                    type="date"
                     value={endDate}
-                    onChange={event => setEndDate(event.target.value)}
+                    onChange={setEndDate}
                     className="h-9 text-sm"
+                    placeholder="dd/mm/yyyy"
                   />
                 </div>
                 <div className="space-y-2 sm:col-span-2">

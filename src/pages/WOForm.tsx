@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useSharePoint } from "@/contexts/SharePointContext";
 import { useToast } from "@/hooks/use-toast";
 import { useSharePointInstantData } from "@/hooks/useInstantData";
+import { DateInputField } from "@/components/ui/date-input";
 
 export default function WOForm() {
   const navigate = useNavigate();
@@ -326,13 +327,12 @@ export default function WOForm() {
 
                 <div className="space-y-2">
                   <Label htmlFor="wo_date" className="text-sm font-semibold text-gray-700">Work Order Date</Label>
-                  <Input
+                  <DateInputField
                     id="wo_date"
-                    type="date"
                     value={formData.wo_date}
-                    onChange={(e) => handleInputChange("wo_date", e.target.value)}
+                    onChange={(v) => handleInputChange("wo_date", v)}
                     className="border-2 focus:border-blue-500 h-11"
-                    required
+                    placeholder="dd/mm/yyyy"
                   />
                 </div>
 

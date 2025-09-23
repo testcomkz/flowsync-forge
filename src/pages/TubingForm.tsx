@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useSharePoint } from "@/contexts/SharePointContext";
 import { useSharePointInstantData } from "@/hooks/useInstantData";
 import { useToast } from "@/hooks/use-toast";
+import { DateInputField } from "@/components/ui/date-input";
 
 export default function TubingForm() {
   const navigate = useNavigate();
@@ -625,11 +626,11 @@ export default function TubingForm() {
 
               <div>
                 <Label htmlFor="arrival_date">Arrival Date</Label>
-                <Input
+                <DateInputField
                   id="arrival_date"
-                  type="date"
                   value={formData.arrival_date}
-                  onChange={(e) => handleInputChange("arrival_date", e.target.value)}
+                  onChange={(v) => handleInputChange("arrival_date", v)}
+                  placeholder="dd/mm/yyyy"
                 />
               </div>
 
