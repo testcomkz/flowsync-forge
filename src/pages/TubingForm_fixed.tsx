@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useSharePoint } from "@/contexts/SharePointContext";
 import { useSharePointInstantData } from "@/hooks/useInstantData";
 import { useToast } from "@/hooks/use-toast";
+import { DateInputField } from "@/components/ui/date-input";
 
 export default function TubingForm() {
   const navigate = useNavigate();
@@ -537,21 +538,21 @@ export default function TubingForm() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="start_date">Start Date</Label>
-                  <Input
+                  <DateInputField
                     id="start_date"
-                    type="date"
                     value={formData.start_date}
-                    onChange={(e) => handleInputChange("start_date", e.target.value)}
+                    onChange={(value) => handleInputChange("start_date", value)}
+                    placeholder="dd/mm/yyyy"
                   />
                 </div>
 
                 <div>
                   <Label htmlFor="end_date">End Date</Label>
-                  <Input
+                  <DateInputField
                     id="end_date"
-                    type="date"
                     value={formData.end_date}
-                    onChange={(e) => handleInputChange("end_date", e.target.value)}
+                    onChange={(value) => handleInputChange("end_date", value)}
+                    placeholder="dd/mm/yyyy"
                   />
                 </div>
               </div>
@@ -650,11 +651,11 @@ export default function TubingForm() {
 
                 <div>
                   <Label htmlFor="act_date">Activity Date</Label>
-                  <Input
+                  <DateInputField
                     id="act_date"
-                    type="date"
                     value={formData.act_date}
-                    onChange={(e) => handleInputChange("act_date", e.target.value)}
+                    onChange={(value) => handleInputChange("act_date", value)}
+                    placeholder="dd/mm/yyyy"
                   />
                 </div>
               </div>
