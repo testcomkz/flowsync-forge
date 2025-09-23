@@ -1,5 +1,5 @@
 import type { ChangeEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { ArrowLeft, Calendar as CalendarIcon, Truck } from "lucide-react";
@@ -82,15 +82,35 @@ const fromDateInputValue = (value: string | null | undefined) => {
   return `${day}/${month}/${year}`;
 };
 
+const formatDisplayDate = (rawValue: string) => {
+  const digits = rawValue.replace(/\D/g, "").slice(0, 8);
+  if (!digits) {
+    return "";
+  }
+
+  if (digits.length <= 2) {
+    return digits;
+  }
+
+  if (digits.length <= 4) {
+    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  }
+
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+};
+
 const parseDateInput = (value: string) => {
   const trimmed = value.trim();
   if (!trimmed) {
     return "";
   }
 
-  const numericOnlyMatch = trimmed.match(/^(\d{8})$/);
-  if (numericOnlyMatch) {
-    const digits = numericOnlyMatch[1];
+  const digits = trimmed.replace(/\D/g, "");
+  if (!digits) {
+    return "";
+  }
+
+  if (digits.length === 8 && !/[./-]/.test(trimmed)) {
     const day = Number(digits.slice(0, 2));
     const month = Number(digits.slice(2, 4));
     const year = Number(digits.slice(4));
@@ -119,6 +139,11 @@ const parseDateInput = (value: string) => {
     day = Number(parts[0]);
     month = Number(parts[1]);
     year = Number(parts[2]);
+  } else if (parts[2].length === 2) {
+    day = Number(parts[0]);
+    month = Number(parts[1]);
+    year = Number(parts[2]);
+    year += year >= 70 ? 1900 : 2000;
   } else {
     return null;
   }
@@ -167,9 +192,10 @@ function DateInputField({ value, onChange, disabled, placeholder }: DateInputFie
 
   const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
     const rawValue = event.target.value;
-    setInputValue(rawValue);
+    const formattedForDisplay = formatDisplayDate(rawValue);
+    setInputValue(formattedForDisplay);
 
-    const parsed = parseDateInput(rawValue);
+    const parsed = parseDateInput(formattedForDisplay);
     if (parsed === "") {
       onChange("");
     } else if (parsed) {
@@ -209,6 +235,7 @@ function DateInputField({ value, onChange, disabled, placeholder }: DateInputFie
         placeholder={placeholder}
         disabled={disabled}
         inputMode="numeric"
+        className="h-10 flex-1 rounded-xl border-sky-200 bg-white/90 text-sky-900 shadow-sm transition focus-visible:border-sky-400 focus-visible:ring-sky-200 disabled:opacity-70"
       />
       <Popover open={isOpen} onOpenChange={setIsOpen}>
         <PopoverTrigger asChild>
@@ -216,7 +243,7 @@ function DateInputField({ value, onChange, disabled, placeholder }: DateInputFie
             type="button"
             variant="outline"
             size="icon"
-            className="h-10 w-10"
+            className="h-10 w-10 rounded-xl border-sky-200 bg-white/90 text-sky-500 shadow-sm transition hover:bg-sky-50 focus-visible:ring-sky-200"
             disabled={disabled}
           >
             <CalendarIcon className="h-4 w-4" />
@@ -224,7 +251,7 @@ function DateInputField({ value, onChange, disabled, placeholder }: DateInputFie
           </Button>
         </PopoverTrigger>
         {!disabled && (
-          <PopoverContent align="end" className="w-auto p-0">
+          <PopoverContent align="end" className="w-auto rounded-xl border border-sky-100 bg-white p-2 shadow-lg">
             <Calendar
               mode="single"
               selected={toDateObject(value)}
@@ -251,6 +278,9 @@ export default function LoadOut() {
   const [loadOutDate, setLoadOutDate] = useState("");
   const [actNoOper, setActNoOper] = useState("");
   const [actDate, setActDate] = useState("");
+  const [isLoadOutDateDirty, setIsLoadOutDateDirty] = useState(false);
+  const [isActNoOperDirty, setIsActNoOperDirty] = useState(false);
+  const [isActDateDirty, setIsActDateDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   const loadOutRows = useMemo(() => {
@@ -339,18 +369,65 @@ export default function LoadOut() {
     [loadOutRows, selectedClient, selectedWorkOrder, selectedBatch]
   );
 
+  const selectedRowKey = selectedRow ? `${selectedRow.client}|${selectedRow.wo_no}|${selectedRow.batch}` : "";
+  const previousRowKeyRef = useRef<string>("");
+
   useEffect(() => {
     if (!selectedRow) {
       setLoadOutDate("");
       setActNoOper("");
       setActDate("");
+      setIsLoadOutDateDirty(false);
+      setIsActNoOperDirty(false);
+      setIsActDateDirty(false);
+      previousRowKeyRef.current = "";
       return;
     }
 
-    setLoadOutDate(selectedRow.loadOutDate);
-    setActNoOper(selectedRow.actNoOper);
-    setActDate(selectedRow.actDate);
-  }, [selectedRow]);
+    const isNewRow = previousRowKeyRef.current !== selectedRowKey;
+
+    if (!isLoadOutDateDirty || isNewRow) {
+      setLoadOutDate(selectedRow.loadOutDate);
+    }
+    if (!isActNoOperDirty || isNewRow) {
+      setActNoOper(selectedRow.actNoOper);
+    }
+    if (!isActDateDirty || isNewRow) {
+      setActDate(selectedRow.actDate);
+    }
+
+    if (isNewRow) {
+      setIsLoadOutDateDirty(false);
+      setIsActNoOperDirty(false);
+      setIsActDateDirty(false);
+    }
+
+    previousRowKeyRef.current = selectedRowKey;
+  }, [
+    selectedRowKey,
+    selectedRow,
+    isLoadOutDateDirty,
+    isActNoOperDirty,
+    isActDateDirty,
+    selectedRow?.loadOutDate,
+    selectedRow?.actNoOper,
+    selectedRow?.actDate,
+  ]);
+
+  const handleLoadOutDateChange = (next: string) => {
+    setLoadOutDate(next);
+    setIsLoadOutDateDirty(next !== (selectedRow?.loadOutDate ?? ""));
+  };
+
+  const handleActDateChange = (next: string) => {
+    setActDate(next);
+    setIsActDateDirty(next !== (selectedRow?.actDate ?? ""));
+  };
+
+  const handleActNoOperChange = (next: string) => {
+    setActNoOper(next);
+    setIsActNoOperDirty(next !== (selectedRow?.actNoOper ?? ""));
+  };
 
   const handleSave = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -548,7 +625,7 @@ export default function LoadOut() {
                     <Label>Load Out Date</Label>
                     <DateInputField
                       value={loadOutDate}
-                      onChange={setLoadOutDate}
+                      onChange={handleLoadOutDateChange}
                       disabled={isFormDisabled || !selectedBatch}
                       placeholder="dd/mm/yyyy"
                     />
@@ -558,9 +635,10 @@ export default function LoadOut() {
                     <Label>AVR</Label>
                     <Input
                       value={actNoOper}
-                      onChange={event => setActNoOper(event.target.value)}
+                      onChange={event => handleActNoOperChange(event.target.value)}
                       placeholder="Enter AVR"
                       disabled={isFormDisabled || !selectedBatch}
+                      className="h-10 rounded-xl border-sky-200 bg-white/90 text-sky-900 shadow-sm transition focus-visible:border-sky-400 focus-visible:ring-sky-200 disabled:opacity-70"
                     />
                   </div>
 
@@ -568,7 +646,7 @@ export default function LoadOut() {
                     <Label>AVR Date</Label>
                     <DateInputField
                       value={actDate}
-                      onChange={setActDate}
+                      onChange={handleActDateChange}
                       disabled={isFormDisabled || !selectedBatch}
                       placeholder="dd/mm/yyyy"
                     />
