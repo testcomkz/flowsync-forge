@@ -61,15 +61,6 @@ export default function InspectionEdit() {
     [records, client, wo_no, batch]
   );
 
-  const [stageQuantities, setStageQuantities] = useState<Record<StageKey, string>>({
-    rattling: "",
-    external: "",
-    hydro: "",
-    mpi: "",
-    drift: "",
-    emi: "",
-    marking: ""
-  });
   const [scrapQuantities, setScrapQuantities] = useState<Record<ScrapKey, string>>({
     rattling: "",
     external: "",
@@ -92,25 +83,14 @@ export default function InspectionEdit() {
       return;
     }
 
-    setStageQuantities(prev => ({
-      ...prev,
-      rattling: record.quantities.rattling ?? "",
-      external: record.quantities.external ?? "",
-      hydro: record.quantities.hydro ?? "",
-      mpi: record.quantities.mpi ?? "",
-      drift: record.quantities.drift ?? "",
-      emi: record.quantities.emi ?? "",
-      marking: record.quantities.marking ?? ""
-    }));
-
     setScrapQuantities(prev => ({
       ...prev,
-      rattling: record.scrap.rattling ?? "",
-      external: record.scrap.external ?? "",
-      jetting: record.scrap.jetting ?? "",
-      mpi: record.scrap.mpi ?? "",
-      drift: record.scrap.drift ?? "",
-      emi: record.scrap.emi ?? ""
+      rattling: sanitizeNumberString(record.scrap.rattling ?? ""),
+      external: sanitizeNumberString(record.scrap.external ?? ""),
+      jetting: sanitizeNumberString(record.scrap.jetting ?? ""),
+      mpi: sanitizeNumberString(record.scrap.mpi ?? ""),
+      drift: sanitizeNumberString(record.scrap.drift ?? ""),
+      emi: sanitizeNumberString(record.scrap.emi ?? ""),
     }));
 
     setClass1(record.class_1 || "");
@@ -121,11 +101,6 @@ export default function InspectionEdit() {
     setStartDate(record.start_date || "");
     setEndDate(record.end_date || "");
   }, [record]);
-
-  const handleStageChange = (key: StageKey, value: string) => {
-    const sanitized = sanitizeNumberString(value);
-    setStageQuantities(prev => ({ ...prev, [key]: sanitized }));
-  };
 
   const handleScrapChange = (key: ScrapKey, value: string) => {
     const sanitized = sanitizeNumberString(value);
@@ -144,6 +119,74 @@ export default function InspectionEdit() {
       }, 0),
     [scrapQuantities]
   );
+
+  const computedStageQuantities = useMemo(() => {
+    if (!record) {
+      return {
+        rattling: "",
+        external: "",
+        hydro: "",
+        mpi: "",
+        drift: "",
+        emi: "",
+        marking: "",
+      } satisfies Record<StageKey, string>;
+    }
+
+    const baseCandidates = [
+      record.qty,
+      record.quantities.rattling,
+      record.quantities.external,
+      record.quantities.hydro,
+      record.quantities.mpi,
+      record.quantities.drift,
+      record.quantities.emi,
+      record.quantities.marking,
+    ];
+
+    const initialValue = baseCandidates
+      .map(value => sanitizeNumberString(value ?? ""))
+      .find(value => value !== "");
+
+    const hasInitialValue = Boolean(initialValue);
+    let running = hasInitialValue ? Number(initialValue) : 0;
+    if (!Number.isFinite(running)) {
+      running = 0;
+    }
+
+    const result: Record<StageKey, string> = {
+      rattling: "",
+      external: "",
+      hydro: "",
+      mpi: "",
+      drift: "",
+      emi: "",
+      marking: "",
+    };
+
+    STAGE_META.forEach(stage => {
+      result[stage.key] = hasInitialValue ? String(Math.max(0, Math.trunc(running))) : "";
+
+      if (stage.scrapKey) {
+        const sanitizedScrap = sanitizeNumberString(scrapQuantities[stage.scrapKey] ?? "");
+        const scrapValue = sanitizedScrap ? Number(sanitizedScrap) : 0;
+        if (Number.isFinite(scrapValue)) {
+          running = Math.max(0, running - scrapValue);
+        }
+      }
+    });
+
+    return result;
+  }, [record, scrapQuantities]);
+
+  const toNumericValue = (value: string) => {
+    const sanitized = sanitizeNumberString(value);
+    if (!sanitized) {
+      return 0;
+    }
+    const numeric = Number(sanitized);
+    return Number.isFinite(numeric) ? numeric : 0;
+  };
 
   const handleUpdate = async () => {
     if (!record) {
@@ -177,20 +220,20 @@ export default function InspectionEdit() {
         scrap: scrapValue,
         start_date: startDate,
         end_date: endDate,
-        rattling_qty: Number(stageQuantities.rattling || 0),
-        external_qty: Number(stageQuantities.external || 0),
-        hydro_qty: Number(stageQuantities.hydro || 0),
-        mpi_qty: Number(stageQuantities.mpi || 0),
-        drift_qty: Number(stageQuantities.drift || 0),
-        emi_qty: Number(stageQuantities.emi || 0),
-        marking_qty: Number(stageQuantities.marking || 0),
+        rattling_qty: toNumericValue(computedStageQuantities.rattling ?? ""),
+        external_qty: toNumericValue(computedStageQuantities.external ?? ""),
+        hydro_qty: toNumericValue(computedStageQuantities.hydro ?? ""),
+        mpi_qty: toNumericValue(computedStageQuantities.mpi ?? ""),
+        drift_qty: toNumericValue(computedStageQuantities.drift ?? ""),
+        emi_qty: toNumericValue(computedStageQuantities.emi ?? ""),
+        marking_qty: toNumericValue(computedStageQuantities.marking ?? ""),
         status: "Inspection Done",
-        rattling_scrap_qty: Number(scrapQuantities.rattling || 0),
-        external_scrap_qty: Number(scrapQuantities.external || 0),
-        jetting_scrap_qty: Number(scrapQuantities.jetting || 0),
-        mpi_scrap_qty: Number(scrapQuantities.mpi || 0),
-        drift_scrap_qty: Number(scrapQuantities.drift || 0),
-        emi_scrap_qty: Number(scrapQuantities.emi || 0),
+        rattling_scrap_qty: toNumericValue(scrapQuantities.rattling ?? ""),
+        external_scrap_qty: toNumericValue(scrapQuantities.external ?? ""),
+        jetting_scrap_qty: toNumericValue(scrapQuantities.jetting ?? ""),
+        mpi_scrap_qty: toNumericValue(scrapQuantities.mpi ?? ""),
+        drift_scrap_qty: toNumericValue(scrapQuantities.drift ?? ""),
+        emi_scrap_qty: toNumericValue(scrapQuantities.emi ?? ""),
         originalClient: record.originalClient,
         originalWo: record.originalWo,
         originalBatch: record.originalBatch
@@ -288,11 +331,11 @@ export default function InspectionEdit() {
                           <TableCell className="p-3 text-sm font-medium text-slate-700">{stage.label}</TableCell>
                           <TableCell className="p-3">
                             <Input
-                              value={stageQuantities[stage.key] ?? ""}
-                              onChange={event => handleStageChange(stage.key, event.target.value)}
+                              value={computedStageQuantities[stage.key] ?? ""}
+                              readOnly
                               inputMode="numeric"
                               placeholder="0"
-                              className="h-9"
+                              className="h-9 bg-slate-100"
                             />
                           </TableCell>
                           <TableCell className="p-3">

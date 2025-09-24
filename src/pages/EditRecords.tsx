@@ -33,6 +33,15 @@ const STATUS_OPTIONS: StatusOption[] = [
   { label: "Change Arrived", value: "Change Arrived", redirect: "/tubing-registry-edit", excelStatus: "" }
 ];
 
+const STATUS_SEQUENCE = ["Change Arrived", "Arrived", "Inspection Done", "Completed"] as const;
+
+const normalizeStatus = (status: string) => status.trim().toLowerCase();
+
+const getStatusRank = (status: string) => {
+  const normalized = normalizeStatus(status);
+  return STATUS_SEQUENCE.findIndex(candidate => normalizeStatus(candidate) === normalized);
+};
+
 const uniqueSorted = (values: string[]) => Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b));
 
 export default function EditRecords() {
@@ -88,6 +97,22 @@ export default function EditRecords() {
     );
   }, [selectedBatch, selectedClient, selectedWorkOrder, tubingRecords]);
 
+  const availableStatusOptions = useMemo(() => {
+    if (!selectedRecord) {
+      return STATUS_OPTIONS;
+    }
+
+    const currentRank = getStatusRank(selectedRecord.status ?? "");
+    if (currentRank === -1) {
+      return STATUS_OPTIONS;
+    }
+
+    return STATUS_OPTIONS.filter(option => {
+      const optionRank = getStatusRank(option.value);
+      return optionRank !== -1 && optionRank <= currentRank;
+    });
+  }, [selectedRecord]);
+
   useEffect(() => {
     setSelectedWorkOrder("");
     setSelectedBatch("");
@@ -100,6 +125,17 @@ export default function EditRecords() {
   useEffect(() => {
     setSelectedStatus("");
   }, [selectedRecord?.id]);
+
+  useEffect(() => {
+    if (!selectedStatus) {
+      return;
+    }
+
+    const stillAllowed = availableStatusOptions.some(option => option.value === selectedStatus);
+    if (!stillAllowed) {
+      setSelectedStatus("");
+    }
+  }, [availableStatusOptions, selectedStatus]);
 
   const handleSave = async () => {
     if (!selectedRecord) {
@@ -134,6 +170,16 @@ export default function EditRecords() {
       toast({
         title: "Unsupported status",
         description: "The selected status is not available for update.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const isAllowed = availableStatusOptions.some(option => option.value === statusConfig.value);
+    if (!isAllowed) {
+      toast({
+        title: "Invalid status transition",
+        description: "You can only move the batch to an earlier stage.",
         variant: "destructive"
       });
       return;
@@ -282,18 +328,25 @@ export default function EditRecords() {
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <Label>New Status</Label>
-                  <Select value={selectedStatus} onValueChange={value => setSelectedStatus(value as StatusOption["value"])}>
+                  <Select
+                    value={selectedStatus}
+                    onValueChange={value => setSelectedStatus(value as StatusOption["value"])}
+                    disabled={availableStatusOptions.length === 0}
+                  >
                     <SelectTrigger>
                       <SelectValue placeholder="Select new status" />
                     </SelectTrigger>
                     <SelectContent>
-                      {STATUS_OPTIONS.map(option => (
+                      {availableStatusOptions.map(option => (
                         <SelectItem key={option.value} value={option.value}>
                           {option.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  {availableStatusOptions.length === 0 ? (
+                    <p className="pt-1 text-sm text-muted-foreground">This batch is already at the earliest stage.</p>
+                  ) : null}
                 </div>
               </div>
             ) : (
