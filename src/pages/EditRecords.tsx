@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ArrowUpDown, ChevronDown, ChevronUp, Search } from "lucide-react";
 
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -14,8 +14,22 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DateInputField, toDateInputValue } from "@/components/ui/date-input";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle
+} from "@/components/ui/sheet";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { useSharePoint } from "@/contexts/SharePointContext";
 import { useSharePointInstantData } from "@/hooks/useInstantData";
@@ -42,6 +56,38 @@ interface WorkOrderRecord {
   originalClient: string;
   originalWo: string;
 }
+
+type WorkOrderFormState = {
+  client: string;
+  wo_no: string;
+  type: string;
+  diameter: string;
+  coupling_replace: string;
+  wo_date: string;
+  transport: string;
+  key_col: string;
+  payer: string;
+  planned_qty: string;
+  originalKey: string;
+  originalClient: string;
+  originalWo: string;
+};
+
+const createWorkOrderFormState = (): WorkOrderFormState => ({
+  client: "",
+  wo_no: "",
+  type: "",
+  diameter: "",
+  coupling_replace: "",
+  wo_date: "",
+  transport: "",
+  key_col: "",
+  payer: "",
+  planned_qty: "",
+  originalKey: "",
+  originalClient: "",
+  originalWo: ""
+});
 
 interface StageValues {
   quantities: Partial<Record<StageKey, string>>;
@@ -74,6 +120,36 @@ interface TubingRecord extends StageValues {
   originalWo: string;
   originalBatch: string;
 }
+
+type TubingFormState = {
+  client: string;
+  wo_no: string;
+  batch: string;
+  diameter: string;
+  qty: string;
+  pipe_from: string;
+  pipe_to: string;
+  rack: string;
+  arrival_date: string;
+  originalClient: string;
+  originalWo: string;
+  originalBatch: string;
+};
+
+const createTubingFormState = (): TubingFormState => ({
+  client: "",
+  wo_no: "",
+  batch: "",
+  diameter: "",
+  qty: "",
+  pipe_from: "",
+  pipe_to: "",
+  rack: "",
+  arrival_date: "",
+  originalClient: "",
+  originalWo: "",
+  originalBatch: ""
+});
 
 const stageMeta: {
   key: StageKey;
@@ -119,6 +195,70 @@ const stageLabel = (key: StageKey) => stageMeta.find(stage => stage.key === key)
 
 const scrapLabel = (key: ScrapKey) =>
   stageMeta.find(stage => stage.scrapKey === key)?.scrapLabel ?? `${key} Scrap Qty`;
+
+type InspectionFormState = {
+  client: string;
+  wo_no: string;
+  batch: string;
+  status: string;
+  class_1: string;
+  class_2: string;
+  class_3: string;
+  repair: string;
+  scrapTotal: string;
+  start_date: string;
+  end_date: string;
+  quantities: Partial<Record<StageKey, string>>;
+  scrap: Partial<Record<ScrapKey, string>>;
+  originalClient: string;
+  originalWo: string;
+  originalBatch: string;
+};
+
+const createInspectionFormState = (): InspectionFormState => ({
+  client: "",
+  wo_no: "",
+  batch: "",
+  status: "",
+  class_1: "",
+  class_2: "",
+  class_3: "",
+  repair: "",
+  scrapTotal: "",
+  start_date: "",
+  end_date: "",
+  quantities: {},
+  scrap: {},
+  originalClient: "",
+  originalWo: "",
+  originalBatch: ""
+});
+
+type LoadOutFormState = {
+  client: string;
+  wo_no: string;
+  batch: string;
+  status: string;
+  load_out_date: string;
+  act_no_oper: string;
+  act_date: string;
+  originalClient: string;
+  originalWo: string;
+  originalBatch: string;
+};
+
+const createLoadOutFormState = (): LoadOutFormState => ({
+  client: "",
+  wo_no: "",
+  batch: "",
+  status: "",
+  load_out_date: "",
+  act_no_oper: "",
+  act_date: "",
+  originalClient: "",
+  originalWo: "",
+  originalBatch: ""
+});
 
 const parseWorkOrders = (data: any[]): WorkOrderRecord[] => {
   if (!Array.isArray(data) || data.length < 2) {
@@ -322,38 +462,93 @@ const parseTubingRecords = (data: any[]): TubingRecord[] => {
 
 type ToastFn = ReturnType<typeof useToast>["toast"];
 
+type RecordCategory = "Work Order" | "Tubing Registry" | "Inspection" | "Load Out";
+
+interface CombinedRecord {
+  id: string;
+  recordId: string;
+  category: RecordCategory;
+  client: string;
+  workOrder: string;
+  batch: string;
+  status: string;
+  type: string;
+  diameter: string;
+  quantity: string;
+  loadOutDate: string;
+}
+
+type SortKey =
+  | "category"
+  | "client"
+  | "workOrder"
+  | "batch"
+  | "status"
+  | "diameter"
+  | "quantity"
+  | "loadOutDate";
+
+type SortDirection = "asc" | "desc";
+
+type SortState = {
+  key: SortKey;
+  direction: SortDirection;
+};
+
+type ActiveRecord =
+  | { category: "Work Order"; record: WorkOrderRecord }
+  | { category: "Tubing Registry" | "Inspection" | "Load Out"; record: TubingRecord };
+
+const recordCategoryOrder: Record<RecordCategory, number> = {
+  "Work Order": 0,
+  "Tubing Registry": 1,
+  Inspection: 2,
+  "Load Out": 3
+};
+
+const getSortableValue = (record: CombinedRecord, key: SortKey): number | string => {
+  switch (key) {
+    case "category":
+      return recordCategoryOrder[record.category];
+    case "client":
+      return record.client || "";
+    case "workOrder":
+      return record.workOrder || "";
+    case "batch":
+      return record.batch || "";
+    case "status":
+      return record.status || "";
+    case "diameter":
+      return record.diameter || "";
+    case "quantity":
+      return Number.parseFloat(record.quantity) || 0;
+    case "loadOutDate":
+      return record.loadOutDate || "";
+    default:
+      return "";
+  }
+};
+
 function WorkOrderEditSection({
   records,
   sharePointService,
   isConnected,
   refreshData,
-  toast
+  toast,
+  initialRecord
 }: {
   records: WorkOrderRecord[];
   sharePointService: SharePointService | null;
   isConnected: boolean;
   refreshData: ((service: SharePointService) => Promise<void>) | null;
   toast: ToastFn;
+  initialRecord?: WorkOrderRecord | null;
 }) {
   const clients = useMemo(() => uniqueSorted(records.map(record => record.client)), [records]);
 
   const [selectedClient, setSelectedClient] = useState<string>("");
   const [selectedWorkOrderId, setSelectedWorkOrderId] = useState<string>("");
-  const [formData, setFormData] = useState({
-    client: "",
-    wo_no: "",
-    type: "",
-    diameter: "",
-    coupling_replace: "",
-    wo_date: "",
-    transport: "",
-    key_col: "",
-    payer: "",
-    planned_qty: "",
-    originalKey: "",
-    originalClient: "",
-    originalWo: ""
-  });
+  const [formData, setFormData] = useState<WorkOrderFormState>(createWorkOrderFormState);
   const [isSaving, setIsSaving] = useState(false);
 
   const workOrdersForClient = useMemo(
@@ -362,32 +557,49 @@ function WorkOrderEditSection({
   );
 
   useEffect(() => {
-    setSelectedWorkOrderId("");
-    setFormData(prev => ({ ...prev, client: selectedClient || "" }));
-  }, [selectedClient]);
-
-  useEffect(() => {
-    if (!selectedWorkOrderId) {
-      setFormData(prev => ({
-        ...prev,
-        wo_no: "",
-        type: "",
-        diameter: "",
-        coupling_replace: "",
-        wo_date: "",
-        transport: "",
-        key_col: "",
-        payer: "",
-        planned_qty: "",
-        originalKey: "",
-        originalClient: selectedClient,
-        originalWo: ""
-      }));
+    if (!initialRecord) {
+      setSelectedClient("");
+      setSelectedWorkOrderId("");
+      setFormData(createWorkOrderFormState());
       return;
     }
 
-    const record = workOrdersForClient.find(item => item.id === selectedWorkOrderId);
+    setSelectedClient(initialRecord.client);
+    setSelectedWorkOrderId(initialRecord.id);
+    setFormData({
+      client: initialRecord.client,
+      wo_no: initialRecord.wo_no,
+      type: initialRecord.type,
+      diameter: initialRecord.diameter,
+      coupling_replace: initialRecord.coupling_replace,
+      wo_date: initialRecord.wo_date,
+      transport: initialRecord.transport,
+      key_col: initialRecord.key_col,
+      payer: initialRecord.payer,
+      planned_qty: initialRecord.planned_qty,
+      originalKey: initialRecord.originalKey,
+      originalClient: initialRecord.originalClient,
+      originalWo: initialRecord.originalWo
+    });
+  }, [initialRecord]);
+
+  const handleSelectClient = (value: string) => {
+    setSelectedClient(value);
+    setSelectedWorkOrderId("");
+    setFormData({
+      ...createWorkOrderFormState(),
+      client: value
+    });
+  };
+
+  const handleSelectWorkOrder = (value: string) => {
+    setSelectedWorkOrderId(value);
+    const record = records.find(item => item.id === value);
     if (!record) {
+      setFormData({
+        ...createWorkOrderFormState(),
+        client: selectedClient
+      });
       return;
     }
 
@@ -406,7 +618,7 @@ function WorkOrderEditSection({
       originalClient: record.originalClient,
       originalWo: record.originalWo
     });
-  }, [selectedWorkOrderId, workOrdersForClient, selectedClient]);
+  };
 
   const handleInputChange = (field: keyof typeof formData, value: string) => {
     setFormData(prev => {
@@ -496,7 +708,7 @@ function WorkOrderEditSection({
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="wo_client">Client</Label>
-            <Select value={selectedClient} onValueChange={setSelectedClient}>
+            <Select value={selectedClient} onValueChange={handleSelectClient}>
               <SelectTrigger id="wo_client">
                 <SelectValue placeholder="Select client" />
               </SelectTrigger>
@@ -514,7 +726,7 @@ function WorkOrderEditSection({
             <Label htmlFor="wo_selector">Work Order</Label>
             <Select
               value={selectedWorkOrderId}
-              onValueChange={setSelectedWorkOrderId}
+              onValueChange={handleSelectWorkOrder}
               disabled={!selectedClient || workOrdersForClient.length === 0}
             >
               <SelectTrigger id="wo_selector">
@@ -630,13 +842,15 @@ function TubingEditSection({
   sharePointService,
   isConnected,
   refreshData,
-  toast
+  toast,
+  initialRecord
 }: {
   records: TubingRecord[];
   sharePointService: SharePointService | null;
   isConnected: boolean;
   refreshData: ((service: SharePointService) => Promise<void>) | null;
   toast: ToastFn;
+  initialRecord?: TubingRecord | null;
 }) {
   const arrivedRecords = useMemo(
     () => records.filter(record => normalizeLower(record.status) === "arrived"),
@@ -651,20 +865,7 @@ function TubingEditSection({
   const [selectedClient, setSelectedClient] = useState("");
   const [selectedWorkOrderId, setSelectedWorkOrderId] = useState("");
   const [selectedRecordId, setSelectedRecordId] = useState("");
-  const [formData, setFormData] = useState({
-    client: "",
-    wo_no: "",
-    batch: "",
-    diameter: "",
-    qty: "",
-    pipe_from: "",
-    pipe_to: "",
-    rack: "",
-    arrival_date: "",
-    originalClient: "",
-    originalWo: "",
-    originalBatch: ""
-  });
+  const [formData, setFormData] = useState<TubingFormState>(createTubingFormState);
   const [isSaving, setIsSaving] = useState(false);
 
   const workOrdersForClient = useMemo(
@@ -678,24 +879,65 @@ function TubingEditSection({
   );
 
   useEffect(() => {
+    if (!initialRecord) {
+      setSelectedClient("");
+      setSelectedWorkOrderId("");
+      setSelectedRecordId("");
+      setFormData(createTubingFormState());
+      return;
+    }
+
+    setSelectedClient(initialRecord.client);
+    setSelectedWorkOrderId(initialRecord.wo_no);
+    setSelectedRecordId(initialRecord.id);
+    setFormData({
+      client: initialRecord.client,
+      wo_no: initialRecord.wo_no,
+      batch: initialRecord.batch,
+      diameter: initialRecord.diameter,
+      qty: initialRecord.qty,
+      pipe_from: initialRecord.pipe_from,
+      pipe_to: initialRecord.pipe_to,
+      rack: initialRecord.rack,
+      arrival_date: initialRecord.arrival_date,
+      originalClient: initialRecord.originalClient,
+      originalWo: initialRecord.originalWo,
+      originalBatch: initialRecord.originalBatch
+    });
+  }, [initialRecord]);
+
+  const handleSelectClient = (value: string) => {
+    setSelectedClient(value);
     setSelectedWorkOrderId("");
     setSelectedRecordId("");
-    setFormData(prev => ({ ...prev, client: selectedClient || "", wo_no: "" }));
-  }, [selectedClient]);
+    setFormData({
+      ...createTubingFormState(),
+      client: value
+    });
+  };
 
-  useEffect(() => {
+  const handleSelectWorkOrder = (value: string) => {
+    setSelectedWorkOrderId(value);
     setSelectedRecordId("");
-    setFormData(prev => ({ ...prev, wo_no: selectedWorkOrderId || "" }));
-  }, [selectedWorkOrderId]);
+    setFormData({
+      ...createTubingFormState(),
+      client: selectedClient,
+      wo_no: value
+    });
+  };
 
-  useEffect(() => {
-    if (!selectedRecordId) {
-      return;
-    }
-    const record = batchesForWorkOrder.find(item => item.id === selectedRecordId);
+  const handleSelectRecord = (value: string) => {
+    setSelectedRecordId(value);
+    const record = arrivedRecords.find(item => item.id === value);
     if (!record) {
+      setFormData({
+        ...createTubingFormState(),
+        client: selectedClient,
+        wo_no: selectedWorkOrderId
+      });
       return;
     }
+
     setFormData({
       client: record.client,
       wo_no: record.wo_no,
@@ -710,7 +952,7 @@ function TubingEditSection({
       originalWo: record.originalWo,
       originalBatch: record.originalBatch
     });
-  }, [selectedRecordId, batchesForWorkOrder]);
+  };
 
   const handleInputChange = (field: keyof typeof formData, value: string) => {
     setFormData(prev => {
@@ -798,7 +1040,7 @@ function TubingEditSection({
         <div className="grid gap-4 md:grid-cols-3">
           <div className="space-y-2">
             <Label>Client</Label>
-            <Select value={selectedClient} onValueChange={setSelectedClient}>
+            <Select value={selectedClient} onValueChange={handleSelectClient}>
               <SelectTrigger>
                 <SelectValue placeholder="Select client" />
               </SelectTrigger>
@@ -815,7 +1057,7 @@ function TubingEditSection({
             <Label>Work Order</Label>
             <Select
               value={selectedWorkOrderId}
-              onValueChange={setSelectedWorkOrderId}
+              onValueChange={handleSelectWorkOrder}
               disabled={!selectedClient}
             >
               <SelectTrigger>
@@ -834,7 +1076,7 @@ function TubingEditSection({
             <Label>Batch</Label>
             <Select
               value={selectedRecordId}
-              onValueChange={setSelectedRecordId}
+              onValueChange={handleSelectRecord}
               disabled={!selectedWorkOrderId}
             >
               <SelectTrigger>
@@ -942,13 +1184,15 @@ function InspectionEditSection({
   sharePointService,
   isConnected,
   refreshData,
-  toast
+  toast,
+  initialRecord
 }: {
   records: TubingRecord[];
   sharePointService: SharePointService | null;
   isConnected: boolean;
   refreshData: ((service: SharePointService) => Promise<void>) | null;
   toast: ToastFn;
+  initialRecord?: TubingRecord | null;
 }) {
   const eligibleRecords = useMemo(
     () =>
@@ -967,24 +1211,7 @@ function InspectionEditSection({
   const [selectedClient, setSelectedClient] = useState("");
   const [selectedWorkOrderId, setSelectedWorkOrderId] = useState("");
   const [selectedRecordId, setSelectedRecordId] = useState("");
-  const [formData, setFormData] = useState({
-    client: "",
-    wo_no: "",
-    batch: "",
-    status: "",
-    class_1: "",
-    class_2: "",
-    class_3: "",
-    repair: "",
-    scrapTotal: "",
-    start_date: "",
-    end_date: "",
-    quantities: {} as Partial<Record<StageKey, string>>,
-    scrap: {} as Partial<Record<ScrapKey, string>>,
-    originalClient: "",
-    originalWo: "",
-    originalBatch: ""
-  });
+  const [formData, setFormData] = useState<InspectionFormState>(createInspectionFormState);
   const [isSaving, setIsSaving] = useState(false);
 
   const workOrdersForClient = useMemo(
@@ -998,22 +1225,69 @@ function InspectionEditSection({
   );
 
   useEffect(() => {
+    if (!initialRecord) {
+      setSelectedClient("");
+      setSelectedWorkOrderId("");
+      setSelectedRecordId("");
+      setFormData(createInspectionFormState());
+      return;
+    }
+
+    setSelectedClient(initialRecord.client);
+    setSelectedWorkOrderId(initialRecord.wo_no);
+    setSelectedRecordId(initialRecord.id);
+    setFormData({
+      client: initialRecord.client,
+      wo_no: initialRecord.wo_no,
+      batch: initialRecord.batch,
+      status: initialRecord.status || "Inspection Done",
+      class_1: initialRecord.class_1,
+      class_2: initialRecord.class_2,
+      class_3: initialRecord.class_3,
+      repair: initialRecord.repair,
+      scrapTotal: initialRecord.scrapTotal,
+      start_date: initialRecord.start_date,
+      end_date: initialRecord.end_date,
+      quantities: { ...initialRecord.quantities },
+      scrap: { ...initialRecord.scrap },
+      originalClient: initialRecord.originalClient,
+      originalWo: initialRecord.originalWo,
+      originalBatch: initialRecord.originalBatch
+    });
+  }, [initialRecord]);
+
+  const handleSelectClient = (value: string) => {
+    setSelectedClient(value);
     setSelectedWorkOrderId("");
     setSelectedRecordId("");
-  }, [selectedClient]);
+    setFormData({
+      ...createInspectionFormState(),
+      client: value
+    });
+  };
 
-  useEffect(() => {
+  const handleSelectWorkOrder = (value: string) => {
+    setSelectedWorkOrderId(value);
     setSelectedRecordId("");
-  }, [selectedWorkOrderId]);
+    setFormData({
+      ...createInspectionFormState(),
+      client: selectedClient,
+      wo_no: value
+    });
+  };
 
-  useEffect(() => {
-    if (!selectedRecordId) {
-      return;
-    }
-    const record = batchesForWorkOrder.find(item => item.id === selectedRecordId);
+  const handleSelectRecord = (value: string) => {
+    setSelectedRecordId(value);
+    const record = eligibleRecords.find(item => item.id === value);
     if (!record) {
+      setFormData({
+        ...createInspectionFormState(),
+        client: selectedClient,
+        wo_no: selectedWorkOrderId
+      });
       return;
     }
+
     setFormData({
       client: record.client,
       wo_no: record.wo_no,
@@ -1032,7 +1306,7 @@ function InspectionEditSection({
       originalWo: record.originalWo,
       originalBatch: record.originalBatch
     });
-  }, [selectedRecordId, batchesForWorkOrder]);
+  };
 
   const handleQuantityChange = (key: StageKey, value: string) => {
     setFormData(prev => ({
@@ -1139,7 +1413,7 @@ function InspectionEditSection({
         <div className="grid gap-4 md:grid-cols-3">
           <div className="space-y-2">
             <Label>Client</Label>
-            <Select value={selectedClient} onValueChange={setSelectedClient}>
+            <Select value={selectedClient} onValueChange={handleSelectClient}>
               <SelectTrigger>
                 <SelectValue placeholder="Select client" />
               </SelectTrigger>
@@ -1156,7 +1430,7 @@ function InspectionEditSection({
             <Label>Work Order</Label>
             <Select
               value={selectedWorkOrderId}
-              onValueChange={setSelectedWorkOrderId}
+              onValueChange={handleSelectWorkOrder}
               disabled={!selectedClient}
             >
               <SelectTrigger>
@@ -1175,7 +1449,7 @@ function InspectionEditSection({
             <Label>Batch</Label>
             <Select
               value={selectedRecordId}
-              onValueChange={setSelectedRecordId}
+              onValueChange={handleSelectRecord}
               disabled={!selectedWorkOrderId}
             >
               <SelectTrigger>
@@ -1341,13 +1615,15 @@ function LoadOutEditSection({
   sharePointService,
   isConnected,
   refreshData,
-  toast
+  toast,
+  initialRecord
 }: {
   records: TubingRecord[];
   sharePointService: SharePointService | null;
   isConnected: boolean;
   refreshData: ((service: SharePointService) => Promise<void>) | null;
   toast: ToastFn;
+  initialRecord?: TubingRecord | null;
 }) {
   const eligibleRecords = useMemo(
     () =>
@@ -1366,18 +1642,7 @@ function LoadOutEditSection({
   const [selectedClient, setSelectedClient] = useState("");
   const [selectedWorkOrderId, setSelectedWorkOrderId] = useState("");
   const [selectedRecordId, setSelectedRecordId] = useState("");
-  const [formData, setFormData] = useState({
-    client: "",
-    wo_no: "",
-    batch: "",
-    status: "",
-    load_out_date: "",
-    act_no_oper: "",
-    act_date: "",
-    originalClient: "",
-    originalWo: "",
-    originalBatch: ""
-  });
+  const [formData, setFormData] = useState<LoadOutFormState>(createLoadOutFormState);
   const [isSaving, setIsSaving] = useState(false);
 
   const workOrdersForClient = useMemo(
@@ -1391,22 +1656,63 @@ function LoadOutEditSection({
   );
 
   useEffect(() => {
+    if (!initialRecord) {
+      setSelectedClient("");
+      setSelectedWorkOrderId("");
+      setSelectedRecordId("");
+      setFormData(createLoadOutFormState());
+      return;
+    }
+
+    setSelectedClient(initialRecord.client);
+    setSelectedWorkOrderId(initialRecord.wo_no);
+    setSelectedRecordId(initialRecord.id);
+    setFormData({
+      client: initialRecord.client,
+      wo_no: initialRecord.wo_no,
+      batch: initialRecord.batch,
+      status: initialRecord.status || "Completed",
+      load_out_date: initialRecord.load_out_date,
+      act_no_oper: initialRecord.act_no_oper,
+      act_date: initialRecord.act_date,
+      originalClient: initialRecord.originalClient,
+      originalWo: initialRecord.originalWo,
+      originalBatch: initialRecord.originalBatch
+    });
+  }, [initialRecord]);
+
+  const handleSelectClient = (value: string) => {
+    setSelectedClient(value);
     setSelectedWorkOrderId("");
     setSelectedRecordId("");
-  }, [selectedClient]);
+    setFormData({
+      ...createLoadOutFormState(),
+      client: value
+    });
+  };
 
-  useEffect(() => {
+  const handleSelectWorkOrder = (value: string) => {
+    setSelectedWorkOrderId(value);
     setSelectedRecordId("");
-  }, [selectedWorkOrderId]);
+    setFormData({
+      ...createLoadOutFormState(),
+      client: selectedClient,
+      wo_no: value
+    });
+  };
 
-  useEffect(() => {
-    if (!selectedRecordId) {
-      return;
-    }
-    const record = batchesForWorkOrder.find(item => item.id === selectedRecordId);
+  const handleSelectRecord = (value: string) => {
+    setSelectedRecordId(value);
+    const record = eligibleRecords.find(item => item.id === value);
     if (!record) {
+      setFormData({
+        ...createLoadOutFormState(),
+        client: selectedClient,
+        wo_no: selectedWorkOrderId
+      });
       return;
     }
+
     setFormData({
       client: record.client,
       wo_no: record.wo_no,
@@ -1419,7 +1725,7 @@ function LoadOutEditSection({
       originalWo: record.originalWo,
       originalBatch: record.originalBatch
     });
-  }, [selectedRecordId, batchesForWorkOrder]);
+  };
 
   const handleInputChange = (field: keyof typeof formData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -1495,7 +1801,7 @@ function LoadOutEditSection({
         <div className="grid gap-4 md:grid-cols-3">
           <div className="space-y-2">
             <Label>Client</Label>
-            <Select value={selectedClient} onValueChange={setSelectedClient}>
+            <Select value={selectedClient} onValueChange={handleSelectClient}>
               <SelectTrigger>
                 <SelectValue placeholder="Select client" />
               </SelectTrigger>
@@ -1512,7 +1818,7 @@ function LoadOutEditSection({
             <Label>Work Order</Label>
             <Select
               value={selectedWorkOrderId}
-              onValueChange={setSelectedWorkOrderId}
+              onValueChange={handleSelectWorkOrder}
               disabled={!selectedClient}
             >
               <SelectTrigger>
@@ -1531,7 +1837,7 @@ function LoadOutEditSection({
             <Label>Batch</Label>
             <Select
               value={selectedRecordId}
-              onValueChange={setSelectedRecordId}
+              onValueChange={handleSelectRecord}
               disabled={!selectedWorkOrderId}
             >
               <SelectTrigger>
@@ -1633,6 +1939,218 @@ export default function EditRecords() {
   const workOrderRecords = useMemo(() => parseWorkOrders(workOrders), [workOrders]);
   const tubingRecords = useMemo(() => parseTubingRecords(tubingData), [tubingData]);
 
+  const [searchTerm, setSearchTerm] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<RecordCategory | "all">("all");
+  const [workOrderFilter, setWorkOrderFilter] = useState<string>("all");
+  const [batchFilter, setBatchFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [sortState, setSortState] = useState<SortState>({ key: "category", direction: "asc" });
+  const [activeRecord, setActiveRecord] = useState<ActiveRecord | null>(null);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+
+  const combinedRecords = useMemo<CombinedRecord[]>(() => {
+    const items: CombinedRecord[] = [];
+
+    workOrderRecords.forEach(record => {
+      items.push({
+        id: `work-${record.id}`,
+        recordId: record.id,
+        category: "Work Order",
+        client: record.client,
+        workOrder: record.wo_no,
+        batch: "",
+        status: record.type || "",
+        type: record.type || "",
+        diameter: record.diameter || "",
+        quantity: record.planned_qty || "",
+        loadOutDate: ""
+      });
+    });
+
+    const tubingRegistryRecords = tubingRecords.filter(
+      record => normalizeLower(record.status) === "arrived"
+    );
+
+    const inspectionRecords = tubingRecords.filter(record => {
+      const status = normalizeLower(record.status);
+      return status === "arrived" || status === "inspection done";
+    });
+
+    const loadOutRecords = tubingRecords.filter(record => {
+      const status = normalizeLower(record.status);
+      return status === "inspection done" || status === "completed";
+    });
+
+    tubingRegistryRecords.forEach(record => {
+      items.push({
+        id: `tubing-${record.id}`,
+        recordId: record.id,
+        category: "Tubing Registry",
+        client: record.client,
+        workOrder: record.wo_no,
+        batch: record.batch || "",
+        status: record.status || "",
+        type: "",
+        diameter: record.diameter || "",
+        quantity: record.qty || "",
+        loadOutDate: ""
+      });
+    });
+
+    inspectionRecords.forEach(record => {
+      items.push({
+        id: `inspection-${record.id}`,
+        recordId: record.id,
+        category: "Inspection",
+        client: record.client,
+        workOrder: record.wo_no,
+        batch: record.batch || "",
+        status: record.status || "",
+        type: "",
+        diameter: record.diameter || "",
+        quantity: record.qty || "",
+        loadOutDate: ""
+      });
+    });
+
+    loadOutRecords.forEach(record => {
+      items.push({
+        id: `loadout-${record.id}`,
+        recordId: record.id,
+        category: "Load Out",
+        client: record.client,
+        workOrder: record.wo_no,
+        batch: record.batch || "",
+        status: record.status || "",
+        type: "",
+        diameter: record.diameter || "",
+        quantity: record.qty || "",
+        loadOutDate: record.load_out_date || ""
+      });
+    });
+
+    return items;
+  }, [workOrderRecords, tubingRecords]);
+
+  const uniqueWorkOrders = useMemo(
+    () => uniqueSorted(combinedRecords.map(record => record.workOrder).filter(Boolean)),
+    [combinedRecords]
+  );
+
+  const uniqueBatches = useMemo(
+    () => uniqueSorted(combinedRecords.map(record => record.batch).filter(Boolean)),
+    [combinedRecords]
+  );
+
+  const uniqueStatuses = useMemo(
+    () => uniqueSorted(combinedRecords.map(record => record.status).filter(Boolean)),
+    [combinedRecords]
+  );
+
+  const filteredRecords = useMemo(() => {
+    const search = searchTerm.trim().toLowerCase();
+    return combinedRecords.filter(record => {
+      if (categoryFilter !== "all" && record.category !== categoryFilter) {
+        return false;
+      }
+      if (workOrderFilter !== "all" && record.workOrder !== workOrderFilter) {
+        return false;
+      }
+      if (batchFilter !== "all" && record.batch !== batchFilter) {
+        return false;
+      }
+      if (statusFilter !== "all" && record.status !== statusFilter) {
+        return false;
+      }
+      if (!search) {
+        return true;
+      }
+
+      const haystack = [
+        record.category,
+        record.client,
+        record.workOrder,
+        record.batch,
+        record.status,
+        record.type,
+        record.diameter,
+        record.quantity,
+        record.loadOutDate
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(search);
+    });
+  }, [combinedRecords, categoryFilter, workOrderFilter, batchFilter, statusFilter, searchTerm]);
+
+  const sortedRecords = useMemo(() => {
+    const records = [...filteredRecords];
+    records.sort((a, b) => {
+      const valueA = getSortableValue(a, sortState.key);
+      const valueB = getSortableValue(b, sortState.key);
+
+      if (typeof valueA === "number" && typeof valueB === "number") {
+        return sortState.direction === "asc" ? valueA - valueB : valueB - valueA;
+      }
+
+      const aString = String(valueA).toLowerCase();
+      const bString = String(valueB).toLowerCase();
+
+      if (aString < bString) {
+        return sortState.direction === "asc" ? -1 : 1;
+      }
+      if (aString > bString) {
+        return sortState.direction === "asc" ? 1 : -1;
+      }
+      return 0;
+    });
+    return records;
+  }, [filteredRecords, sortState]);
+
+  const handleSort = (key: SortKey) => {
+    setSortState(prev =>
+      prev.key === key
+        ? { key, direction: prev.direction === "asc" ? "desc" : "asc" }
+        : { key, direction: "asc" }
+    );
+  };
+
+  const renderSortIcon = (key: SortKey) => {
+    if (sortState.key !== key) {
+      return <ArrowUpDown className="ml-2 h-4 w-4 text-muted-foreground" />;
+    }
+    return sortState.direction === "asc" ? (
+      <ChevronUp className="ml-2 h-4 w-4 text-muted-foreground" />
+    ) : (
+      <ChevronDown className="ml-2 h-4 w-4 text-muted-foreground" />
+    );
+  };
+
+  const handleOpenEdit = (record: CombinedRecord) => {
+    if (record.category === "Work Order") {
+      const match = workOrderRecords.find(item => item.id === record.recordId);
+      if (match) {
+        setActiveRecord({ category: "Work Order", record: match });
+        setIsEditOpen(true);
+      }
+      return;
+    }
+
+    const match = tubingRecords.find(item => item.id === record.recordId);
+    if (match) {
+      setActiveRecord({ category: record.category, record: match });
+      setIsEditOpen(true);
+    }
+  };
+
+  const handleEditOpenChange = (open: boolean) => {
+    setIsEditOpen(open);
+    if (!open) {
+      setActiveRecord(null);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
@@ -1662,54 +2180,260 @@ export default function EditRecords() {
           </CardContent>
         </Card>
 
-        <Tabs defaultValue="work-order" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4 border-2">
-            <TabsTrigger value="work-order" className="font-semibold">Work Order</TabsTrigger>
-            <TabsTrigger value="tubing" className="font-semibold">Tubing Registry</TabsTrigger>
-            <TabsTrigger value="inspection" className="font-semibold">Inspection</TabsTrigger>
-            <TabsTrigger value="loadout" className="font-semibold">Load Out</TabsTrigger>
-          </TabsList>
+        <Card className="border-2 shadow-sm">
+          <CardHeader className="border-b bg-white">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <CardTitle className="text-xl font-semibold">Records Overview</CardTitle>
+              <div className="relative w-full md:w-72">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchTerm}
+                  onChange={event => setSearchTerm(event.target.value)}
+                  placeholder="Search by client, Work Order, batch..."
+                  className="pl-9"
+                />
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-4">
+              <Select
+                value={categoryFilter}
+                onValueChange={value => setCategoryFilter(value as RecordCategory | "all")}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Record type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All records</SelectItem>
+                  <SelectItem value="Work Order">Work Order</SelectItem>
+                  <SelectItem value="Tubing Registry">Tubing Registry</SelectItem>
+                  <SelectItem value="Inspection">Inspection</SelectItem>
+                  <SelectItem value="Load Out">Load Out</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={workOrderFilter} onValueChange={setWorkOrderFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Work Order" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Work Orders</SelectItem>
+                  {uniqueWorkOrders.map(workOrder => (
+                    <SelectItem key={workOrder} value={workOrder}>
+                      {workOrder}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={batchFilter} onValueChange={setBatchFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Batch" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Batches</SelectItem>
+                  {uniqueBatches.map(batch => (
+                    <SelectItem key={batch} value={batch}>
+                      {batch}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Status / Type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  {uniqueStatuses.map(status => (
+                    <SelectItem key={status} value={status}>
+                      {status}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="px-6 pb-6">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>
+                      <button
+                        type="button"
+                        onClick={() => handleSort("category")}
+                        className="flex items-center font-semibold"
+                      >
+                        Record
+                        {renderSortIcon("category")}
+                      </button>
+                    </TableHead>
+                    <TableHead>
+                      <button
+                        type="button"
+                        onClick={() => handleSort("client")}
+                        className="flex items-center font-semibold"
+                      >
+                        Client
+                        {renderSortIcon("client")}
+                      </button>
+                    </TableHead>
+                    <TableHead>
+                      <button
+                        type="button"
+                        onClick={() => handleSort("workOrder")}
+                        className="flex items-center font-semibold"
+                      >
+                        Work Order
+                        {renderSortIcon("workOrder")}
+                      </button>
+                    </TableHead>
+                    <TableHead>
+                      <button
+                        type="button"
+                        onClick={() => handleSort("batch")}
+                        className="flex items-center font-semibold"
+                      >
+                        Batch
+                        {renderSortIcon("batch")}
+                      </button>
+                    </TableHead>
+                    <TableHead>
+                      <button
+                        type="button"
+                        onClick={() => handleSort("status")}
+                        className="flex items-center font-semibold"
+                      >
+                        Status / Type
+                        {renderSortIcon("status")}
+                      </button>
+                    </TableHead>
+                    <TableHead>
+                      <button
+                        type="button"
+                        onClick={() => handleSort("diameter")}
+                        className="flex items-center font-semibold"
+                      >
+                        Diameter
+                        {renderSortIcon("diameter")}
+                      </button>
+                    </TableHead>
+                    <TableHead>
+                      <button
+                        type="button"
+                        onClick={() => handleSort("quantity")}
+                        className="flex items-center font-semibold"
+                      >
+                        Quantity
+                        {renderSortIcon("quantity")}
+                      </button>
+                    </TableHead>
+                    <TableHead>
+                      <button
+                        type="button"
+                        onClick={() => handleSort("loadOutDate")}
+                        className="flex items-center font-semibold"
+                      >
+                        Load Out Date
+                        {renderSortIcon("loadOutDate")}
+                      </button>
+                    </TableHead>
+                    <TableHead className="text-right">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sortedRecords.length > 0 ? (
+                    sortedRecords.map(record => (
+                      <TableRow key={record.id}>
+                        <TableCell className="font-medium text-slate-900">{record.category}</TableCell>
+                        <TableCell>{record.client || "—"}</TableCell>
+                        <TableCell>{record.workOrder || "—"}</TableCell>
+                        <TableCell>{record.batch || "—"}</TableCell>
+                        <TableCell>
+                          {record.category === "Work Order"
+                            ? record.type || "—"
+                            : record.status || "—"}
+                        </TableCell>
+                        <TableCell>{record.diameter || "—"}</TableCell>
+                        <TableCell>{record.quantity || "—"}</TableCell>
+                        <TableCell>{record.loadOutDate || "—"}</TableCell>
+                        <TableCell className="text-right">
+                          <Button size="sm" variant="outline" onClick={() => handleOpenEdit(record)}>
+                            Edit
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={9} className="py-12 text-center text-sm text-muted-foreground">
+                        No records match your search or filters.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
 
-          <TabsContent value="work-order" className="space-y-6">
-            <WorkOrderEditSection
-              records={workOrderRecords}
-              sharePointService={sharePointService}
-              isConnected={isConnected}
-              refreshData={refreshDataInBackground}
-              toast={toast}
-            />
-          </TabsContent>
-
-          <TabsContent value="tubing" className="space-y-6">
-            <TubingEditSection
-              records={tubingRecords}
-              sharePointService={sharePointService}
-              isConnected={isConnected}
-              refreshData={refreshDataInBackground}
-              toast={toast}
-            />
-          </TabsContent>
-
-          <TabsContent value="inspection" className="space-y-6">
-            <InspectionEditSection
-              records={tubingRecords}
-              sharePointService={sharePointService}
-              isConnected={isConnected}
-              refreshData={refreshDataInBackground}
-              toast={toast}
-            />
-          </TabsContent>
-
-          <TabsContent value="loadout" className="space-y-6">
-            <LoadOutEditSection
-              records={tubingRecords}
-              sharePointService={sharePointService}
-              isConnected={isConnected}
-              refreshData={refreshDataInBackground}
-              toast={toast}
-            />
-          </TabsContent>
-        </Tabs>
+        <Sheet open={isEditOpen} onOpenChange={handleEditOpenChange}>
+          <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-4xl">
+            <SheetHeader>
+              <SheetTitle>Edit {activeRecord?.category ?? "record"}</SheetTitle>
+              <SheetDescription>
+                Update the selected record and save the changes to sync with SharePoint.
+              </SheetDescription>
+            </SheetHeader>
+            <div className="py-6">
+              {activeRecord ? (
+                activeRecord.category === "Work Order" ? (
+                  <WorkOrderEditSection
+                    key={`wo-${activeRecord.record.id}`}
+                    records={workOrderRecords}
+                    sharePointService={sharePointService}
+                    isConnected={isConnected}
+                    refreshData={refreshDataInBackground}
+                    toast={toast}
+                    initialRecord={activeRecord.record}
+                  />
+                ) : activeRecord.category === "Tubing Registry" ? (
+                  <TubingEditSection
+                    key={`tubing-${activeRecord.record.id}`}
+                    records={tubingRecords}
+                    sharePointService={sharePointService}
+                    isConnected={isConnected}
+                    refreshData={refreshDataInBackground}
+                    toast={toast}
+                    initialRecord={activeRecord.record}
+                  />
+                ) : activeRecord.category === "Inspection" ? (
+                  <InspectionEditSection
+                    key={`inspection-${activeRecord.record.id}`}
+                    records={tubingRecords}
+                    sharePointService={sharePointService}
+                    isConnected={isConnected}
+                    refreshData={refreshDataInBackground}
+                    toast={toast}
+                    initialRecord={activeRecord.record}
+                  />
+                ) : (
+                  <LoadOutEditSection
+                    key={`loadout-${activeRecord.record.id}`}
+                    records={tubingRecords}
+                    sharePointService={sharePointService}
+                    isConnected={isConnected}
+                    refreshData={refreshDataInBackground}
+                    toast={toast}
+                    initialRecord={activeRecord.record}
+                  />
+                )
+              ) : (
+                <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
+                  Choose a record from the table to start editing.
+                </div>
+              )}
+            </div>
+          </SheetContent>
+        </Sheet>
       </div>
     </div>
   );
