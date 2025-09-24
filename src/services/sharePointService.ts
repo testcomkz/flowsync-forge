@@ -394,6 +394,171 @@ export class SharePointService {
     }
   }
 
+  async updateWorkOrder(data: {
+    originalKey?: string;
+    originalClient?: string;
+    originalWo?: string;
+    client: string;
+    wo_no: string;
+    type?: string;
+    diameter?: string;
+    coupling_replace?: string;
+    wo_date?: string;
+    transport?: string;
+    key_col?: string;
+    payer?: string;
+    planned_qty?: string;
+  }): Promise<boolean> {
+    try {
+      const usedInfo = await this.getUsedRangeInfo('wo');
+      if (!usedInfo?.values?.length) {
+        console.warn('⚠️ No work order data available to update');
+        return false;
+      }
+
+      const { values, meta } = usedInfo;
+      const headersRow = Array.isArray(values[0]) ? (values[0] as unknown[]) : [];
+
+      const normalize = (value: unknown) =>
+        value === null || value === undefined ? '' : String(value).trim().toLowerCase();
+
+      const canonicalize = (header: string) =>
+        header
+          .replace(/[\s-]+/g, '_')
+          .replace(/_{2,}/g, '_');
+
+      const findColumn = (matcher: (header: string, canonical?: string) => boolean) =>
+        headersRow.findIndex(header => {
+          const normalizedHeader = normalize(header);
+          const canonicalHeader = canonicalize(normalizedHeader);
+          return matcher(normalizedHeader, canonicalHeader);
+        });
+
+      const clientIndex = findColumn(header => header.includes('client'));
+      const woIndex = findColumn(header => header.includes('wo') && !header.includes('workorderdate'));
+      const typeIndex = findColumn(header => header.includes('type'));
+      const diameterIndex = findColumn(header => header.includes('diameter') || header.includes('диаметр'));
+      const couplingIndex = findColumn(header => header.includes('coupling'));
+      const dateIndex = findColumn(header => header.includes('date'));
+      const transportIndex = findColumn(header => header.includes('transport'));
+      const keyIndex = findColumn(header => header.includes('key'));
+      const payerIndex = findColumn(header => header.includes('payer') || header.includes('branch'));
+      const qtyIndex = findColumn(header => header.includes('qty') || header.includes('quantity'));
+
+      const targetKey = normalize(data.originalKey);
+      const targetClient = normalize(data.originalClient ?? data.client);
+      const targetWo = normalize(data.originalWo ?? data.wo_no);
+
+      const rowIndex = values.findIndex((row, idx) => {
+        if (idx === 0) return false;
+        if (keyIndex !== -1 && targetKey) {
+          if (normalize(row[keyIndex]) === targetKey) {
+            return true;
+          }
+        }
+        return (
+          clientIndex !== -1 && woIndex !== -1 &&
+          normalize(row[clientIndex]) === targetClient &&
+          normalize(row[woIndex]) === targetWo
+        );
+      });
+
+      if (rowIndex === -1) {
+        console.warn('⚠️ Target work order not found for update', data);
+        return false;
+      }
+
+      const updates = new Map<number, any>();
+
+      const applyValue = (predicate: (header: string, canonical?: string) => boolean, value: unknown) => {
+        const columnIndex = findColumn(predicate);
+        if (columnIndex !== -1) {
+          updates.set(columnIndex, value ?? '');
+        }
+      };
+
+      applyValue(header => header.includes('client'), data.client);
+      applyValue(header => header.includes('wo') && !header.includes('workorderdate'), data.wo_no);
+      applyValue(header => header.includes('type'), data.type ?? '');
+      applyValue(header => header.includes('diameter') || header.includes('диаметр'), data.diameter ?? '');
+      applyValue(header => header.includes('coupling'), data.coupling_replace ?? '');
+      applyValue(header => header.includes('date'), data.wo_date ?? '');
+      applyValue(header => header.includes('transport'), data.transport ?? '');
+      applyValue(header => header.includes('key'), data.key_col ?? '');
+      applyValue(header => header.includes('payer') || header.includes('branch'), data.payer ?? '');
+      applyValue(header => header.includes('qty') || header.includes('quantity'), data.planned_qty ?? '');
+
+      if (updates.size === 0) {
+        console.warn('⚠️ No matching columns found to update for work order');
+        return true;
+      }
+
+      const sortedIndexes = Array.from(updates.keys()).sort((a, b) => a - b);
+      const rowNumber = meta.startRow + rowIndex;
+
+      type Segment = { start: number; end: number; values: any[] };
+      const segments: Segment[] = [];
+
+      let currentStart: number | null = null;
+      let currentEnd: number | null = null;
+      let currentValues: any[] = [];
+
+      for (const index of sortedIndexes) {
+        const value = updates.get(index) ?? '';
+        if (currentStart === null) {
+          currentStart = index;
+          currentEnd = index;
+          currentValues = [value];
+          continue;
+        }
+
+        if (currentEnd !== null && index === currentEnd + 1) {
+          currentEnd = index;
+          currentValues.push(value);
+        } else {
+          segments.push({ start: currentStart, end: currentEnd ?? currentStart, values: currentValues });
+          currentStart = index;
+          currentEnd = index;
+          currentValues = [value];
+        }
+      }
+
+      if (currentStart !== null) {
+        segments.push({ start: currentStart, end: currentEnd ?? currentStart, values: currentValues });
+      }
+
+      let overallSuccess = true;
+
+      for (const segment of segments) {
+        const startColNumber = meta.startCol + segment.start;
+        const endColNumber = meta.startCol + segment.end;
+        const startColLetters = this.indexToColLetters(startColNumber);
+        const endColLetters = this.indexToColLetters(endColNumber);
+        const range =
+          startColLetters === endColLetters
+            ? `${startColLetters}${rowNumber}`
+            : `${startColLetters}${rowNumber}:${endColLetters}${rowNumber}`;
+
+        const segmentValues = [segment.values.slice()];
+        const writeSuccess = await this.writeExcelData('wo', range, segmentValues);
+        if (!writeSuccess) {
+          overallSuccess = false;
+          break;
+        }
+      }
+
+      if (overallSuccess) {
+        localStorage.removeItem('sharepoint_cached_workorders');
+        localStorage.removeItem('sharepoint_cached_workorders_timestamp');
+      }
+
+      return overallSuccess;
+    } catch (error) {
+      console.error('❌ Error updating work order in Excel:', error);
+      return false;
+    }
+  }
+
   // Создать запись в Tubing Registry с правильным порядком вставки
   async createTubingRecord(data: any): Promise<boolean> {
     try {
@@ -444,6 +609,164 @@ export class SharePointService {
       return false;
     } catch (error) {
       console.error('Error creating tubing record:', error);
+      return false;
+    }
+  }
+
+  async updateTubingRecord(data: {
+    originalClient: string;
+    originalWo: string;
+    originalBatch: string;
+    client: string;
+    wo_no: string;
+    batch: string;
+    diameter?: string;
+    qty?: string | number;
+    pipe_from?: string | number;
+    pipe_to?: string | number;
+    rack?: string;
+    arrival_date?: string;
+    status?: string;
+  }): Promise<boolean> {
+    try {
+      const usedInfo = await this.getUsedRangeInfo('tubing');
+      if (!usedInfo?.values?.length) {
+        console.warn('⚠️ No tubing data available to update');
+        return false;
+      }
+
+      const { values, meta } = usedInfo;
+      const headersRow = Array.isArray(values[0]) ? (values[0] as unknown[]) : [];
+
+      const normalize = (value: unknown) =>
+        value === null || value === undefined ? '' : String(value).trim().toLowerCase();
+
+      const canonicalize = (header: string) =>
+        header
+          .replace(/[\s-]+/g, '_')
+          .replace(/_{2,}/g, '_');
+
+      const findColumn = (matcher: (header: string, canonical?: string) => boolean) =>
+        headersRow.findIndex(header => {
+          const normalizedHeader = normalize(header);
+          const canonicalHeader = canonicalize(normalizedHeader);
+          return matcher(normalizedHeader, canonicalHeader);
+        });
+
+      const clientIndex = findColumn(header => header.includes('client'));
+      const woIndex = findColumn(header => header.includes('wo'));
+      const batchIndex = findColumn(header => header.includes('batch'));
+
+      if (clientIndex === -1 || woIndex === -1 || batchIndex === -1) {
+        console.error('❌ Required columns (client/wo/batch) not found in tubing sheet');
+        return false;
+      }
+
+      const targetClient = normalize(data.originalClient);
+      const targetWo = normalize(data.originalWo);
+      const targetBatch = normalize(data.originalBatch);
+
+      const rowIndex = values.findIndex((row, idx) => {
+        if (idx === 0) return false;
+        return (
+          normalize(row[clientIndex]) === targetClient &&
+          normalize(row[woIndex]) === targetWo &&
+          normalize(row[batchIndex]) === targetBatch
+        );
+      });
+
+      if (rowIndex === -1) {
+        console.warn('⚠️ Target tubing record not found for general update', data);
+        return false;
+      }
+
+      const updates = new Map<number, any>();
+
+      const applyValue = (predicate: (header: string, canonical?: string) => boolean, value: unknown) => {
+        const columnIndex = findColumn(predicate);
+        if (columnIndex !== -1) {
+          updates.set(columnIndex, value ?? '');
+        }
+      };
+
+      applyValue(header => header.includes('client'), data.client);
+      applyValue(header => header.includes('wo'), data.wo_no);
+      applyValue(header => header.includes('batch'), data.batch);
+      applyValue(header => header.includes('diameter') || header.includes('диаметр'), data.diameter ?? '');
+      applyValue((header, canonical) => canonical === 'qty' || canonical === 'quantity' || (canonical.includes('qty') && !canonical.includes('scrap')), data.qty ?? '');
+      applyValue(header => header.includes('pipe_from') || header.includes('from'), data.pipe_from ?? '');
+      applyValue(header => header.includes('pipe_to') || header.includes('to'), data.pipe_to ?? '');
+      applyValue(header => header.includes('rack'), data.rack ?? '');
+      applyValue(header => header.includes('arrival'), data.arrival_date ?? '');
+      applyValue(header => header.includes('status'), data.status ?? 'Arrived');
+
+      if (updates.size === 0) {
+        console.warn('⚠️ No matching columns found to update for tubing record');
+        return true;
+      }
+
+      const sortedIndexes = Array.from(updates.keys()).sort((a, b) => a - b);
+      const rowNumber = meta.startRow + rowIndex;
+
+      type Segment = { start: number; end: number; values: any[] };
+      const segments: Segment[] = [];
+
+      let currentStart: number | null = null;
+      let currentEnd: number | null = null;
+      let currentValues: any[] = [];
+
+      for (const index of sortedIndexes) {
+        const value = updates.get(index) ?? '';
+        if (currentStart === null) {
+          currentStart = index;
+          currentEnd = index;
+          currentValues = [value];
+          continue;
+        }
+
+        if (currentEnd !== null && index === currentEnd + 1) {
+          currentEnd = index;
+          currentValues.push(value);
+        } else {
+          segments.push({ start: currentStart, end: currentEnd ?? currentStart, values: currentValues });
+          currentStart = index;
+          currentEnd = index;
+          currentValues = [value];
+        }
+      }
+
+      if (currentStart !== null) {
+        segments.push({ start: currentStart, end: currentEnd ?? currentStart, values: currentValues });
+      }
+
+      let overallSuccess = true;
+
+      for (const segment of segments) {
+        const startColNumber = meta.startCol + segment.start;
+        const endColNumber = meta.startCol + segment.end;
+        const startColLetters = this.indexToColLetters(startColNumber);
+        const endColLetters = this.indexToColLetters(endColNumber);
+        const range =
+          startColLetters === endColLetters
+            ? `${startColLetters}${rowNumber}`
+            : `${startColLetters}${rowNumber}:${endColLetters}${rowNumber}`;
+
+        const segmentValues = [segment.values.slice()];
+        const writeSuccess = await this.writeExcelData('tubing', range, segmentValues);
+        if (!writeSuccess) {
+          overallSuccess = false;
+          break;
+        }
+      }
+
+      if (overallSuccess) {
+        localStorage.removeItem('sharepoint_cached_tubing');
+        localStorage.removeItem('sharepoint_cache_timestamp_tubing');
+      }
+
+      return overallSuccess;
+    } catch (error) {
+      console.error('❌ Error updating tubing record:', error);
       return false;
     }
   }
@@ -1161,6 +1484,9 @@ export class SharePointService {
     act_no_oper?: string;
     act_date?: string;
     status?: string;
+    originalClient?: string;
+    originalWo?: string;
+    originalBatch?: string;
   }): Promise<boolean> {
     try {
       const usedInfo = await this.getUsedRangeInfo('tubing');
@@ -1196,9 +1522,9 @@ export class SharePointService {
         return false;
       }
 
-      const targetClient = normalize(data.client);
-      const targetWo = normalize(data.wo_no);
-      const targetBatch = normalize(data.batch);
+      const targetClient = normalize(data.originalClient ?? data.client);
+      const targetWo = normalize(data.originalWo ?? data.wo_no);
+      const targetBatch = normalize(data.originalBatch ?? data.batch);
 
       const rowIndex = values.findIndex((row, idx) => {
         if (idx === 0) return false;
@@ -1332,6 +1658,15 @@ export class SharePointService {
     emi_qty?: number;
     marking_qty?: number;
     status?: string;
+    rattling_scrap_qty?: number;
+    external_scrap_qty?: number;
+    jetting_scrap_qty?: number;
+    mpi_scrap_qty?: number;
+    drift_scrap_qty?: number;
+    emi_scrap_qty?: number;
+    originalClient?: string;
+    originalWo?: string;
+    originalBatch?: string;
   }): Promise<boolean> {
     try {
       const usedInfo = await this.getUsedRangeInfo('tubing');
@@ -1344,9 +1679,7 @@ export class SharePointService {
       const headersRow = Array.isArray(values[0]) ? (values[0] as unknown[]) : [];
 
       const normalize = (value: unknown) =>
-        value === null || value === undefined
-          ? ''
-          : String(value).trim().toLowerCase();
+        value === null || value === undefined ? '' : String(value).trim().toLowerCase();
 
       const canonicalize = (header: string) =>
         header
@@ -1369,9 +1702,9 @@ export class SharePointService {
         return false;
       }
 
-      const targetClient = normalize(data.client);
-      const targetWo = normalize(data.wo_no);
-      const targetBatch = normalize(data.batch);
+      const targetClient = normalize(data.originalClient ?? data.client);
+      const targetWo = normalize(data.originalWo ?? data.wo_no);
+      const targetBatch = normalize(data.originalBatch ?? data.batch);
 
       const rowIndex = values.findIndex((row, idx) => {
         if (idx === 0) return false;
@@ -1413,6 +1746,16 @@ export class SharePointService {
         header => header.includes('scrap') && !header.includes('scrap_qty'),
         data.scrap ?? ''
       );
+
+      applyValue((header, canonical) => canonical.includes('rattling_scrap'), data.rattling_scrap_qty ?? '');
+      applyValue((header, canonical) => canonical.includes('external_scrap'), data.external_scrap_qty ?? '');
+      applyValue(
+        (header, canonical) => canonical.includes('hydro_scrap') || canonical.includes('jetting_scrap'),
+        data.jetting_scrap_qty ?? ''
+      );
+      applyValue((header, canonical) => canonical.includes('mpi_scrap'), data.mpi_scrap_qty ?? '');
+      applyValue((header, canonical) => canonical.includes('drift_scrap'), data.drift_scrap_qty ?? '');
+      applyValue((header, canonical) => canonical.includes('emi_scrap'), data.emi_scrap_qty ?? '');
 
       applyValue(
         (header, canonical) => {
