@@ -121,7 +121,7 @@ export const MainDashboard = () => {
       title: "Edit Records",
       description: "Modify existing work orders and tubing records",
       icon: Edit3,
-      path: "/edit",
+      path: "/edit-records",
       color: "bg-orange-50 hover:bg-orange-100 border-orange-300"
     }
   ];

@@ -1,4 +1,4 @@
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { createBrowserRouter, RouterProvider, Navigate } from "react-router-dom";
 import { AuthProvider } from './contexts/AuthContext';
 import { SharePointProvider } from './contexts/SharePointContext';
 import { Toaster } from './components/ui/toaster';
@@ -23,6 +23,10 @@ const router = createBrowserRouter([
   {
     path: "/wo-form",
     element: <WOForm />,
+  },
+  {
+    path: "/edit",
+    element: <Navigate to="/edit-records" replace />,
   },
   {
     path: "/edit-records",
