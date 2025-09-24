@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { SharePointService } from '@/services/sharePointService';
 import { authService } from '@/services/authService';
+import { safeLocalStorage } from '@/lib/safe-storage';
 
 interface SharePointContextType {
   isConnected: boolean;
@@ -41,49 +42,47 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
   
   // Кешированные данные для быстрого доступа - инициализируем сразу из localStorage
   const [cachedClients, setCachedClients] = useState<string[]>(() => {
-    try {
-      const cached = localStorage.getItem('sharepoint_cached_clients');
-      const data = cached ? JSON.parse(cached) : [];
-      console.log('🚀 SharePointContext initialized with cached clients:', data.length);
+    const data = safeLocalStorage.getJSON<string[]>("sharepoint_cached_clients", []);
+    if (Array.isArray(data) && data.length > 0) {
+      console.log("🚀 SharePointContext initialized with cached clients:", data.length);
       return data;
-    } catch { 
-      console.warn('Failed to load cached clients');
-      return []; 
     }
+    if (!Array.isArray(data)) {
+      console.warn("Cached clients data is not an array");
+      return [];
+    }
+    return data;
   });
   const [cachedWorkOrders, setCachedWorkOrders] = useState<any[]>(() => {
-    try {
-      const cached = localStorage.getItem('sharepoint_cached_workorders');
-      const data = cached ? JSON.parse(cached) : [];
-      console.log('🚀 SharePointContext initialized with cached work orders:', data.length);
+    const data = safeLocalStorage.getJSON<any[]>("sharepoint_cached_workorders", []);
+    if (Array.isArray(data) && data.length > 0) {
+      console.log("🚀 SharePointContext initialized with cached work orders:", data.length);
       return data;
-    } catch { 
-      console.warn('Failed to load cached work orders');
-      return []; 
     }
+    if (!Array.isArray(data)) {
+      console.warn("Cached work orders data is not an array");
+      return [];
+    }
+    return data;
   });
   const [isDataLoading, setIsDataLoading] = useState<boolean>(false);
 
   // Гипер-быстрое кеширование - сохраняем данные мгновенно с уведомлением всех компонентов
   const saveToCache = (key: string, data: any) => {
+    const arrayData = Array.isArray(data) ? data : [];
+
+    if (key === "sharepoint_cached_clients") {
+      setCachedClients(arrayData);
+    } else if (key === "sharepoint_cached_workorders") {
+      setCachedWorkOrders(arrayData);
+    }
+
     try {
-      localStorage.setItem(key, JSON.stringify(data));
-      localStorage.setItem(`${key}_timestamp`, new Date().toISOString());
-      console.log(`💾 Cached ${key}:`, data.length || 'data');
-      
-      // Обновляем локальное состояние для мгновенного отображения
-      if (key === 'sharepoint_cached_clients') {
-        setCachedClients(data);
-      } else if (key === 'sharepoint_cached_workorders') {
-        setCachedWorkOrders(data);
-      }
-      
-      // Уведомляем все компоненты о изменении данных
-      window.dispatchEvent(new StorageEvent('storage', {
-        key: key,
-        newValue: JSON.stringify(data),
-        storageArea: localStorage
-      }));
+      safeLocalStorage.setJSON(key, data ?? []);
+      safeLocalStorage.setItem(`${key}_timestamp`, new Date().toISOString());
+      const serialized = JSON.stringify(data ?? []);
+      console.log(`💾 Cached ${key}:`, Array.isArray(data) ? data.length : "data");
+      safeLocalStorage.dispatchStorageEvent(key, serialized);
     } catch (error) {
       console.warn(`Failed to cache ${key}:`, error);
     }
@@ -91,14 +90,14 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
 
   // Проверяем свежесть кеша
   const isCacheFresh = (key: string, maxAgeMinutes = 30) => {
+    const timestamp = safeLocalStorage.getItem(`${key}_timestamp`);
+    if (!timestamp) return false;
+
     try {
-      const timestamp = localStorage.getItem(`${key}_timestamp`);
-      if (!timestamp) return false;
-      
       const cacheTime = new Date(timestamp);
       const now = new Date();
       const ageMinutes = (now.getTime() - cacheTime.getTime()) / (1000 * 60);
-      
+
       return ageMinutes < maxAgeMinutes;
     } catch {
       return false;
@@ -112,7 +111,7 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
         // ВСЕГДА загружаем кешированные данные первым делом
         loadCachedData();
         
-        const storedConnection = localStorage.getItem('sharepoint_connected');
+        const storedConnection = safeLocalStorage.getItem("sharepoint_connected");
         
         if (storedConnection === 'true') {
           console.log('Found stored SharePoint connection, attempting to restore...');
@@ -144,15 +143,15 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
             } catch (connectionError) {
               console.error('❌ SharePoint connection test failed:', connectionError);
               console.log('⚠️ Clearing invalid SharePoint session');
-              localStorage.removeItem('sharepoint_connected');
-              localStorage.removeItem('sharepoint_connection_time');
+              safeLocalStorage.removeItem("sharepoint_connected");
+              safeLocalStorage.removeItem("sharepoint_connection_time");
               setError('SharePoint authentication expired. Please reconnect.');
             }
             
           } else {
             console.log('No MSAL account found, clearing storage');
-            localStorage.removeItem('sharepoint_connected');
-            localStorage.removeItem('sharepoint_connection_time');
+            safeLocalStorage.removeItem("sharepoint_connected");
+            safeLocalStorage.removeItem("sharepoint_connection_time");
           }
         }
       } catch (error) {
@@ -168,8 +167,8 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
   // Загрузка кешированных данных из localStorage
   const loadCachedData = () => {
     try {
-      const cachedClientsData = localStorage.getItem('sharepoint_cached_clients');
-      const cachedWorkOrdersData = localStorage.getItem('sharepoint_cached_workorders');
+      const cachedClientsData = safeLocalStorage.getItem("sharepoint_cached_clients");
+      const cachedWorkOrdersData = safeLocalStorage.getItem("sharepoint_cached_workorders");
       
       if (cachedClientsData) {
         try {
@@ -222,7 +221,7 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
       console.log('🔄 Starting background data refresh...');
       
       // Проверяем время последнего обновления
-      const lastRefresh = localStorage.getItem('sharepoint_last_refresh');
+      const lastRefresh = safeLocalStorage.getItem("sharepoint_last_refresh");
       const now = new Date();
       const lastRefreshTime = lastRefresh ? new Date(lastRefresh) : null;
       
@@ -269,7 +268,7 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
       }
       
       // Сохраняем время последнего обновления
-      localStorage.setItem('sharepoint_last_refresh', now.toISOString());
+      safeLocalStorage.setItem("sharepoint_last_refresh", now.toISOString());
       
     } catch (error) {
       console.error('Background data refresh failed:', error);
@@ -325,8 +324,8 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
       setIsConnected(true);
       
       // Сохраняем состояние в localStorage
-      localStorage.setItem('sharepoint_connected', 'true');
-      localStorage.setItem('sharepoint_connection_time', new Date().toISOString());
+      safeLocalStorage.setItem("sharepoint_connected", "true");
+      safeLocalStorage.setItem("sharepoint_connection_time", new Date().toISOString());
       
       console.log('✅ SharePoint connected and saved to storage');
       
@@ -356,16 +355,18 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
     setCachedWorkOrders([]);
     
     // Очищаем сохраненное состояние SharePoint (но НЕ MSAL токены)
-    localStorage.removeItem('sharepoint_connected');
-    localStorage.removeItem('sharepoint_connection_time');
-    localStorage.removeItem('sharepoint_cached_clients');
-    localStorage.removeItem('sharepoint_cached_workorders');
-    localStorage.removeItem('sharepoint_cached_tubing');
-    localStorage.removeItem('sharepoint_clients_timestamp');
-    localStorage.removeItem('sharepoint_workorders_timestamp');
-    localStorage.removeItem('sharepoint_cached_tubing_timestamp');
-    localStorage.removeItem('sharepoint_last_refresh');
-    
+    [
+      "sharepoint_connected",
+      "sharepoint_connection_time",
+      "sharepoint_cached_clients",
+      "sharepoint_cached_workorders",
+      "sharepoint_cached_tubing",
+      "sharepoint_clients_timestamp",
+      "sharepoint_workorders_timestamp",
+      "sharepoint_cached_tubing_timestamp",
+      "sharepoint_last_refresh",
+    ].forEach(key => safeLocalStorage.removeItem(key));
+
     console.log('SharePoint disconnected and cache cleared (MSAL tokens preserved)');
   };
 

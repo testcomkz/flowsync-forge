@@ -15,6 +15,7 @@ import {
 import { useSharePoint } from "@/contexts/SharePointContext";
 import { DataStatusIndicator } from "@/components/ui/data-status-indicator";
 import { cn } from "@/lib/utils";
+import { safeLocalStorage } from '@/lib/safe-storage';
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -54,7 +55,7 @@ export function DashboardLayout({ children, currentPage = "Dashboard" }: Dashboa
   const handleUpdateData = async () => {
     if (sharePointService) {
       // Принудительное обновление - очищаем время последнего обновления
-      localStorage.removeItem('sharepoint_last_refresh');
+      safeLocalStorage.removeItem("sharepoint_last_refresh");
       await refreshDataInBackground(sharePointService);
     }
   };
@@ -97,10 +98,10 @@ export function DashboardLayout({ children, currentPage = "Dashboard" }: Dashboa
             )}
             
             {/* Data Status Indicator */}
-            <DataStatusIndicator 
+            <DataStatusIndicator
               isConnected={isConnected}
               isLoading={isDataLoading}
-              lastUpdate={localStorage.getItem('sharepoint_last_refresh') || undefined}
+              lastUpdate={safeLocalStorage.getItem("sharepoint_last_refresh") || undefined}
               dataCount={cachedClients.length + cachedWorkOrders.length}
             />
             

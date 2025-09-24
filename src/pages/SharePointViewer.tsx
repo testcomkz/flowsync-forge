@@ -12,6 +12,7 @@ import { Loader2, FileSpreadsheet, Users, Briefcase, Database, ArrowLeft, Info, 
 import { useSharePoint } from "@/contexts/SharePointContext";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
+import { safeLocalStorage } from '@/lib/safe-storage';
 
 interface ExcelData {
   clients: string[];
@@ -256,9 +257,9 @@ const SharePointViewer: React.FC = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const cachedClientsData = localStorage.getItem('sharepoint_cached_clients');
-    const cachedWorkOrdersData = localStorage.getItem('sharepoint_cached_workorders');
-    const cachedTubingData = localStorage.getItem('sharepoint_cached_tubing');
+    const cachedClientsData = safeLocalStorage.getItem('sharepoint_cached_clients');
+    const cachedWorkOrdersData = safeLocalStorage.getItem('sharepoint_cached_workorders');
+    const cachedTubingData = safeLocalStorage.getItem('sharepoint_cached_tubing');
 
     const clients = parseStoredArray<string>(cachedClientsData, 'clients');
     const workOrders = parseStoredArray<unknown>(cachedWorkOrdersData, 'work orders');
@@ -269,7 +270,7 @@ const SharePointViewer: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const cachedTubingData = localStorage.getItem('sharepoint_cached_tubing');
+    const cachedTubingData = safeLocalStorage.getItem('sharepoint_cached_tubing');
     const tubingRegistry = parseStoredArray<unknown>(cachedTubingData, 'tubing');
 
     setExcelData({

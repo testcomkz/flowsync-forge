@@ -12,6 +12,7 @@ import { useSharePoint } from "@/contexts/SharePointContext";
 import { useToast } from "@/hooks/use-toast";
 import { useSharePointInstantData } from "@/hooks/useInstantData";
 import { DateInputField } from "@/components/ui/date-input";
+import { safeLocalStorage } from '@/lib/safe-storage';
 
 export default function WOForm() {
   const navigate = useNavigate();
@@ -193,7 +194,7 @@ export default function WOForm() {
         try {
           if (sharePointService && refreshDataInBackground) {
             console.log('🟦 Auto Update Data: clearing last refresh and triggering background refresh');
-            localStorage.removeItem('sharepoint_last_refresh');
+            safeLocalStorage.removeItem('sharepoint_last_refresh');
             await refreshDataInBackground(sharePointService);
           }
         } catch (e) {

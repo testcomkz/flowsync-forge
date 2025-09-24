@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useSharePoint } from "@/contexts/SharePointContext";
 import { Header } from "@/components/layout/Header";
 import { useToast } from "@/hooks/use-toast";
+import { safeLocalStorage } from '@/lib/safe-storage';
 
 export const MainDashboard = () => {
   const navigate = useNavigate();
@@ -47,7 +48,7 @@ export const MainDashboard = () => {
       try {
         setRefreshingCard(path);
         // Сбрасываем метку свежести, чтобы принудительно получить новые данные
-        localStorage.removeItem("sharepoint_last_refresh");
+        safeLocalStorage.removeItem("sharepoint_last_refresh");
         await refreshDataInBackground(sharePointService);
       } catch (error) {
         console.warn("Failed to refresh SharePoint data before navigation:", error);

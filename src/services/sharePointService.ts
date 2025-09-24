@@ -1,5 +1,6 @@
 import { Client } from "@microsoft/microsoft-graph-client";
 import { AuthenticationProvider } from "@microsoft/microsoft-graph-client";
+import { safeLocalStorage } from '@/lib/safe-storage';
 
 export class SharePointService {
   private graphClient: Client;
@@ -548,8 +549,8 @@ export class SharePointService {
       }
 
       if (overallSuccess) {
-        localStorage.removeItem('sharepoint_cached_workorders');
-        localStorage.removeItem('sharepoint_cached_workorders_timestamp');
+        safeLocalStorage.removeItem('sharepoint_cached_workorders');
+        safeLocalStorage.removeItem('sharepoint_cached_workorders_timestamp');
       }
 
       return overallSuccess;
@@ -760,8 +761,8 @@ export class SharePointService {
       }
 
       if (overallSuccess) {
-        localStorage.removeItem('sharepoint_cached_tubing');
-        localStorage.removeItem('sharepoint_cache_timestamp_tubing');
+        safeLocalStorage.removeItem('sharepoint_cached_tubing');
+        safeLocalStorage.removeItem('sharepoint_cache_timestamp_tubing');
       }
 
       return overallSuccess;
@@ -852,8 +853,8 @@ export class SharePointService {
         const ok = await this.writeExcelData('wo', range, cleanedData);
         if (ok) {
           console.log(`✅ Work order appended successfully!`);
-          localStorage.removeItem('sharepoint_cached_wo');
-          localStorage.removeItem('sharepoint_cache_timestamp_wo');
+          safeLocalStorage.removeItem('sharepoint_cached_wo');
+          safeLocalStorage.removeItem('sharepoint_cache_timestamp_wo');
         } else {
           console.log(`❌ Failed to append work order`);
         }
@@ -890,8 +891,8 @@ export class SharePointService {
 
       console.log(`✅ Successfully inserted work order for client ${client} at absolute row ${absoluteInsertRow}`);
       // Очистим кэш, чтобы форсировать обновление данных
-      localStorage.removeItem('sharepoint_cached_wo');
-      localStorage.removeItem('sharepoint_cache_timestamp_wo');
+      safeLocalStorage.removeItem('sharepoint_cached_wo');
+      safeLocalStorage.removeItem('sharepoint_cache_timestamp_wo');
       return true;
 
     } catch (error) {
@@ -1055,8 +1056,8 @@ export class SharePointService {
 
       console.log(`✅ Successfully inserted tubing for client ${client}, WO ${woNo} at absolute row ${absoluteInsertRow}`);
       // Очистим кэш, чтобы форсировать обновление данных
-      localStorage.removeItem('sharepoint_cached_tubing');
-      localStorage.removeItem('sharepoint_cache_timestamp_tubing');
+      safeLocalStorage.removeItem('sharepoint_cached_tubing');
+      safeLocalStorage.removeItem('sharepoint_cache_timestamp_tubing');
       return true;
       
     } catch (error) {
@@ -1628,8 +1629,8 @@ export class SharePointService {
       }
 
       if (overallSuccess) {
-        localStorage.removeItem('sharepoint_cached_tubing');
-        localStorage.removeItem('sharepoint_cache_timestamp_tubing');
+        safeLocalStorage.removeItem('sharepoint_cached_tubing');
+        safeLocalStorage.removeItem('sharepoint_cache_timestamp_tubing');
       }
 
       return overallSuccess;
@@ -1849,8 +1850,8 @@ export class SharePointService {
       }
 
       if (overallSuccess) {
-        localStorage.removeItem('sharepoint_cached_tubing');
-        localStorage.removeItem('sharepoint_cache_timestamp_tubing');
+        safeLocalStorage.removeItem('sharepoint_cached_tubing');
+        safeLocalStorage.removeItem('sharepoint_cache_timestamp_tubing');
       }
 
       return overallSuccess;

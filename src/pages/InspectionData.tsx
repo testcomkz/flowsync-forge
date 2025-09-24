@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useSharePointInstantData } from "@/hooks/useInstantData";
 import { useSharePoint } from "@/contexts/SharePointContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { safeLocalStorage } from '@/lib/safe-storage';
 
 type StageKey = "rattling" | "external" | "hydro" | "mpi" | "drift" | "emi" | "marking";
 type ScrapKey = "rattling" | "external" | "jetting" | "mpi" | "drift" | "emi";
@@ -533,7 +534,7 @@ export default function InspectionData() {
 
         if (sharePointService && refreshDataInBackground) {
           try {
-            localStorage.removeItem("sharepoint_last_refresh");
+            safeLocalStorage.removeItem("sharepoint_last_refresh");
             await refreshDataInBackground(sharePointService);
           } catch (refreshError) {
             console.warn("Failed to refresh SharePoint data after inspection save:", refreshError);

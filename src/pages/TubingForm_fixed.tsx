@@ -12,6 +12,7 @@ import { useSharePoint } from "@/contexts/SharePointContext";
 import { useSharePointInstantData } from "@/hooks/useInstantData";
 import { useToast } from "@/hooks/use-toast";
 import { DateInputField } from "@/components/ui/date-input";
+import { safeLocalStorage } from '@/lib/safe-storage';
 
 export default function TubingForm() {
   const navigate = useNavigate();
@@ -92,8 +93,8 @@ export default function TubingForm() {
     }
     
     // INSTANT calculation from cache only - no API calls
-    const cachedTubingData = localStorage.getItem('sharepoint_cached_tubing');
-    const cachedWoData = localStorage.getItem('sharepoint_cached_workorders');
+    const cachedTubingData = safeLocalStorage.getItem('sharepoint_cached_tubing');
+    const cachedWoData = safeLocalStorage.getItem('sharepoint_cached_workorders');
     
     if (cachedTubingData && cachedWoData) {
       try {

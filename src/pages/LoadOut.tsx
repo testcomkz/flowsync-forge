@@ -12,6 +12,7 @@ import { useSharePoint } from "@/contexts/SharePointContext";
 import { useToast } from "@/hooks/use-toast";
 import { useSharePointInstantData } from "@/hooks/useInstantData";
 import { useAuth } from "@/contexts/AuthContext";
+import { safeLocalStorage } from '@/lib/safe-storage';
 
 interface LoadOutRow {
   client: string;
@@ -286,7 +287,7 @@ export default function LoadOut() {
 
         if (sharePointService && refreshDataInBackground) {
           try {
-            localStorage.removeItem("sharepoint_last_refresh");
+            safeLocalStorage.removeItem("sharepoint_last_refresh");
             await refreshDataInBackground(sharePointService);
           } catch (refreshError) {
             console.warn("Failed to refresh SharePoint data after load out save:", refreshError);

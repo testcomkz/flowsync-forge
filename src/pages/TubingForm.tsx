@@ -12,6 +12,7 @@ import { useSharePoint } from "@/contexts/SharePointContext";
 import { useSharePointInstantData } from "@/hooks/useInstantData";
 import { useToast } from "@/hooks/use-toast";
 import { DateInputField } from "@/components/ui/date-input";
+import { safeLocalStorage } from '@/lib/safe-storage';
 
 export default function TubingForm() {
   const navigate = useNavigate();
@@ -381,7 +382,7 @@ export default function TubingForm() {
         // Автоматически обновляем данные SharePoint, чтобы все карточки видели свежие изменения
         if (sharePointService && refreshDataInBackground) {
           try {
-            localStorage.removeItem("sharepoint_last_refresh");
+            safeLocalStorage.removeItem("sharepoint_last_refresh");
             await refreshDataInBackground(sharePointService);
           } catch (refreshError) {
             console.warn("Failed to refresh SharePoint data after tubing save:", refreshError);
