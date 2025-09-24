@@ -7,6 +7,7 @@ import { LoginForm } from "@/components/auth/LoginForm";
 import { authService } from "@/services/authService";
 import { SharePointService } from "@/services/sharePointService";
 import { DataStatusIndicator } from "@/components/ui/data-status-indicator";
+import { safeLocalStorage } from '@/lib/safe-storage';
 
 export const Header = () => {
   const { user, logout, isAuthenticated } = useAuth();
@@ -39,7 +40,7 @@ export const Header = () => {
     }
     if (sharePointService) {
       // Принудительное обновление при Load Data - очищаем время последнего обновления
-      localStorage.removeItem('sharepoint_last_refresh');
+      safeLocalStorage.removeItem("sharepoint_last_refresh");
       await refreshDataInBackground(sharePointService);
     }
   };
@@ -47,7 +48,7 @@ export const Header = () => {
   const handleUpdateData = async () => {
     if (sharePointService) {
       // Принудительное обновление - очищаем время последнего обновления
-      localStorage.removeItem('sharepoint_last_refresh');
+      safeLocalStorage.removeItem("sharepoint_last_refresh");
       await refreshDataInBackground(sharePointService);
     }
   };
@@ -151,10 +152,10 @@ export const Header = () => {
           )}
           
           {/* Data Status Indicator */}
-          <DataStatusIndicator 
+          <DataStatusIndicator
             isConnected={isConnected}
             isLoading={isDataLoading}
-            lastUpdate={localStorage.getItem('sharepoint_last_refresh') || undefined}
+            lastUpdate={safeLocalStorage.getItem("sharepoint_last_refresh") || undefined}
             dataCount={cachedClients.length + cachedWorkOrders.length}
           />
           

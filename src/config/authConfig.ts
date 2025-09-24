@@ -1,4 +1,5 @@
 import { Configuration } from "@azure/msal-browser";
+import { safeLocalStorage } from '@/lib/safe-storage';
 
 export const msalConfig: Configuration = {
   auth: {
@@ -27,26 +28,32 @@ export const clearMSALCache = () => {
   console.log('Clearing MSAL cache...');
   
   // Clear localStorage (where MSAL cache is now stored)
-  const msalKeys = Object.keys(localStorage).filter(key => 
-    key.startsWith('msal.') || 
-    key.includes('msal') || 
-    key.startsWith('sharepoint_')
-  );
-  
+  const msalKeys = safeLocalStorage
+    .keys()
+    .filter(key =>
+      key.startsWith('msal.') ||
+      key.includes('msal') ||
+      key.startsWith('sharepoint_')
+    );
+
   msalKeys.forEach(key => {
-    localStorage.removeItem(key);
+    safeLocalStorage.removeItem(key);
     console.log(`Removed: ${key}`);
   });
-  
+
   // Clear sessionStorage as well
-  sessionStorage.clear();
-  
+  if (typeof window !== "undefined" && window.sessionStorage) {
+    window.sessionStorage.clear();
+  }
+
   // Clear any cookies related to authentication
-  document.cookie.split(";").forEach((c) => {
-    const eqPos = c.indexOf("=");
-    const name = eqPos > -1 ? c.substr(0, eqPos) : c;
-    document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
-  });
+  if (typeof document !== "undefined") {
+    document.cookie.split(";").forEach((c) => {
+      const eqPos = c.indexOf("=");
+      const name = eqPos > -1 ? c.substr(0, eqPos) : c;
+      document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
+    });
+  }
   
   console.log('MSAL cache cleared. Please refresh the page to force re-login.');
 };

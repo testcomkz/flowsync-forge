@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
+import { safeLocalStorage } from '@/lib/safe-storage';
 
 // Ultra-fast data hook for millisecond loading with automatic sync
 export const useInstantData = <T>(key: string, defaultValue: T) => {
   const [data, setData] = useState<T>(() => {
     try {
-      const cached = localStorage.getItem(key);
+      const cached = safeLocalStorage.getItem(key);
       return cached ? JSON.parse(cached) : defaultValue;
     } catch {
       return defaultValue;
@@ -31,7 +32,7 @@ export const useInstantData = <T>(key: string, defaultValue: T) => {
   const updateData = (newData: T) => {
     setData(newData);
     try {
-      localStorage.setItem(key, JSON.stringify(newData));
+      safeLocalStorage.setItem(key, JSON.stringify(newData));
     } catch (error) {
       console.warn(`Failed to save ${key} to localStorage:`, error);
     }
@@ -50,9 +51,9 @@ export const useSharePointInstantData = () => {
   useEffect(() => {
     const syncData = () => {
       try {
-        const cachedClients = localStorage.getItem('sharepoint_cached_clients');
-        const cachedWorkOrders = localStorage.getItem('sharepoint_cached_workorders');
-        const cachedTubing = localStorage.getItem('sharepoint_cached_tubing');
+        const cachedClients = safeLocalStorage.getItem("sharepoint_cached_clients");
+        const cachedWorkOrders = safeLocalStorage.getItem("sharepoint_cached_workorders");
+        const cachedTubing = safeLocalStorage.getItem("sharepoint_cached_tubing");
         
         if (cachedClients) {
           const clientsData = JSON.parse(cachedClients);

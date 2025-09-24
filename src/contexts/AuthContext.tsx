@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { SupabaseService } from '@/services/supabaseService';
+import { safeLocalStorage } from '@/lib/safe-storage';
 
 const supabaseService = new SupabaseService();
 
@@ -40,7 +41,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     const restoreUserSession = () => {
       try {
-        const savedUser = localStorage.getItem('auth_user');
+        const savedUser = safeLocalStorage.getItem("auth_user");
         if (savedUser) {
           const userData = JSON.parse(savedUser);
           setUser(userData);
@@ -48,7 +49,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
       } catch (error) {
         console.error('Error restoring user session:', error);
-        localStorage.removeItem('auth_user');
+        safeLocalStorage.removeItem("auth_user");
       } finally {
         setIsLoading(false);
       }
@@ -71,7 +72,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setUser(userData);
         
         // Сохраняем в localStorage
-        localStorage.setItem('auth_user', JSON.stringify(userData));
+        safeLocalStorage.setItem("auth_user", JSON.stringify(userData));
         console.log('✅ User session saved to localStorage');
         return true;
       } else {
@@ -86,7 +87,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const logout = () => {
     setUser(null);
-    localStorage.removeItem('auth_user');
+    safeLocalStorage.removeItem("auth_user");
     console.log('✅ User session cleared from localStorage');
   };
 
