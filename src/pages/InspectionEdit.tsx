@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, ClipboardCheck } from "lucide-react";
 
@@ -61,7 +61,7 @@ export default function InspectionEdit() {
     [records, client, wo_no, batch]
   );
 
-  const [stageQuantities, setStageQuantities] = useState<Record<StageKey, string>>({
+  const [baseStageQuantities, setBaseStageQuantities] = useState<Record<StageKey, string>>({
     rattling: "",
     external: "",
     hydro: "",
@@ -86,32 +86,40 @@ export default function InspectionEdit() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const lastRecordIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!record) {
+      lastRecordIdRef.current = null;
       return;
     }
 
-    setStageQuantities(prev => ({
-      ...prev,
-      rattling: record.quantities.rattling ?? "",
-      external: record.quantities.external ?? "",
-      hydro: record.quantities.hydro ?? "",
-      mpi: record.quantities.mpi ?? "",
-      drift: record.quantities.drift ?? "",
-      emi: record.quantities.emi ?? "",
-      marking: record.quantities.marking ?? ""
-    }));
+    if (lastRecordIdRef.current === record.id) {
+      return;
+    }
 
-    setScrapQuantities(prev => ({
-      ...prev,
+    lastRecordIdRef.current = record.id;
+
+    const fallbackQty = record.qty || "";
+
+    setBaseStageQuantities({
+      rattling: record.quantities.rattling ?? fallbackQty,
+      external: record.quantities.external ?? fallbackQty,
+      hydro: record.quantities.hydro ?? fallbackQty,
+      mpi: record.quantities.mpi ?? fallbackQty,
+      drift: record.quantities.drift ?? fallbackQty,
+      emi: record.quantities.emi ?? fallbackQty,
+      marking: record.quantities.marking ?? fallbackQty
+    });
+
+    setScrapQuantities({
       rattling: record.scrap.rattling ?? "",
       external: record.scrap.external ?? "",
       jetting: record.scrap.jetting ?? "",
       mpi: record.scrap.mpi ?? "",
       drift: record.scrap.drift ?? "",
       emi: record.scrap.emi ?? ""
-    }));
+    });
 
     setClass1(record.class_1 || "");
     setClass2(record.class_2 || "");
@@ -121,11 +129,6 @@ export default function InspectionEdit() {
     setStartDate(record.start_date || "");
     setEndDate(record.end_date || "");
   }, [record]);
-
-  const handleStageChange = (key: StageKey, value: string) => {
-    const sanitized = sanitizeNumberString(value);
-    setStageQuantities(prev => ({ ...prev, [key]: sanitized }));
-  };
 
   const handleScrapChange = (key: ScrapKey, value: string) => {
     const sanitized = sanitizeNumberString(value);
@@ -144,6 +147,47 @@ export default function InspectionEdit() {
       }, 0),
     [scrapQuantities]
   );
+
+  useEffect(() => {
+    const hasScrapEntries = (Object.values(scrapQuantities) as string[]).some(value => sanitizeNumberString(value) !== "");
+    const computedString = hasScrapEntries ? computedScrapTotal.toString() : "";
+    if (scrapValue !== computedString) {
+      setScrapValue(computedString);
+    }
+  }, [computedScrapTotal, scrapQuantities, scrapValue]);
+
+  const calculatedStageQuantities = useMemo(() => {
+    const result: Record<StageKey, string> = {
+      rattling: "",
+      external: "",
+      hydro: "",
+      mpi: "",
+      drift: "",
+      emi: "",
+      marking: ""
+    };
+
+    for (const stage of STAGE_META) {
+      const baseRaw = baseStageQuantities[stage.key] ?? "";
+      const baseNumeric = Number(sanitizeNumberString(baseRaw));
+      const hasValidBase = baseRaw !== "" && Number.isFinite(baseNumeric);
+
+      if (stage.scrapKey) {
+        const scrapRaw = scrapQuantities[stage.scrapKey] ?? "";
+        const scrapNumeric = Number(sanitizeNumberString(scrapRaw));
+        if (hasValidBase) {
+          const computed = Math.max(0, baseNumeric - (Number.isFinite(scrapNumeric) ? scrapNumeric : 0));
+          result[stage.key] = computed.toString();
+        } else {
+          result[stage.key] = baseRaw;
+        }
+      } else {
+        result[stage.key] = baseRaw;
+      }
+    }
+
+    return result;
+  }, [baseStageQuantities, scrapQuantities]);
 
   const handleUpdate = async () => {
     if (!record) {
@@ -177,13 +221,13 @@ export default function InspectionEdit() {
         scrap: scrapValue,
         start_date: startDate,
         end_date: endDate,
-        rattling_qty: Number(stageQuantities.rattling || 0),
-        external_qty: Number(stageQuantities.external || 0),
-        hydro_qty: Number(stageQuantities.hydro || 0),
-        mpi_qty: Number(stageQuantities.mpi || 0),
-        drift_qty: Number(stageQuantities.drift || 0),
-        emi_qty: Number(stageQuantities.emi || 0),
-        marking_qty: Number(stageQuantities.marking || 0),
+        rattling_qty: Number(calculatedStageQuantities.rattling || 0),
+        external_qty: Number(calculatedStageQuantities.external || 0),
+        hydro_qty: Number(calculatedStageQuantities.hydro || 0),
+        mpi_qty: Number(calculatedStageQuantities.mpi || 0),
+        drift_qty: Number(calculatedStageQuantities.drift || 0),
+        emi_qty: Number(calculatedStageQuantities.emi || 0),
+        marking_qty: Number(calculatedStageQuantities.marking || 0),
         status: "Inspection Done",
         rattling_scrap_qty: Number(scrapQuantities.rattling || 0),
         external_scrap_qty: Number(scrapQuantities.external || 0),
@@ -288,11 +332,11 @@ export default function InspectionEdit() {
                           <TableCell className="p-3 text-sm font-medium text-slate-700">{stage.label}</TableCell>
                           <TableCell className="p-3">
                             <Input
-                              value={stageQuantities[stage.key] ?? ""}
-                              onChange={event => handleStageChange(stage.key, event.target.value)}
+                              value={calculatedStageQuantities[stage.key] ?? ""}
+                              readOnly
                               inputMode="numeric"
                               placeholder="0"
-                              className="h-9"
+                              className="h-9 bg-slate-100 text-slate-700"
                             />
                           </TableCell>
                           <TableCell className="p-3">
@@ -351,9 +395,10 @@ export default function InspectionEdit() {
                     <Input
                       id="scrap"
                       value={scrapValue}
-                      onChange={event => setScrapValue(sanitizeNumberString(event.target.value))}
+                      readOnly
                       placeholder="Total scrap"
                       inputMode="numeric"
+                      className="bg-slate-100"
                     />
                   </div>
                   <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-sm text-emerald-800">
@@ -361,7 +406,6 @@ export default function InspectionEdit() {
                     <p>{computedScrapTotal}</p>
                   </div>
                 </div>
-
                 <div className="flex justify-end">
                   <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[160px]">
                     {isSaving ? "Updating..." : "Update"}

@@ -20,9 +20,11 @@ import { useSharePoint } from "@/contexts/SharePointContext";
 
 import { parseTubingRecords, TubingRecord } from "@/lib/tubing-records";
 
+type StatusValue = "Inspection Done" | "Arrived" | "Change Arrived" | "Completed";
+
 interface StatusOption {
   label: string;
-  value: "Inspection Done" | "Arrived" | "Change Arrived";
+  value: StatusValue;
   redirect: "/load-out-edit" | "/inspection-edit" | "/tubing-registry-edit";
   excelStatus: string;
 }
@@ -30,8 +32,26 @@ interface StatusOption {
 const STATUS_OPTIONS: StatusOption[] = [
   { label: "Inspection Done", value: "Inspection Done", redirect: "/load-out-edit", excelStatus: "Inspection Done" },
   { label: "Arrived", value: "Arrived", redirect: "/inspection-edit", excelStatus: "Arrived" },
-  { label: "Change Arrived", value: "Change Arrived", redirect: "/tubing-registry-edit", excelStatus: "" }
+  { label: "Change Arrived", value: "Change Arrived", redirect: "/tubing-registry-edit", excelStatus: "" },
+  { label: "Completed", value: "Completed", redirect: "/load-out-edit", excelStatus: "Completed" }
 ];
+
+const STATUS_PRIORITY: Record<string, number> = {
+  "change arrived": 0,
+  arrived: 1,
+  "inspection done": 2,
+  completed: 3
+};
+
+const normalizeStatus = (status?: string | null) => status?.trim().toLowerCase() ?? "";
+
+const getStatusPriority = (status?: string | null) => {
+  const normalized = normalizeStatus(status);
+  if (!normalized) {
+    return undefined;
+  }
+  return STATUS_PRIORITY[normalized];
+};
 
 const uniqueSorted = (values: string[]) => Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b));
 
@@ -101,6 +121,29 @@ export default function EditRecords() {
     setSelectedStatus("");
   }, [selectedRecord?.id]);
 
+  const availableStatusOptions = useMemo(() => {
+    if (!selectedRecord) {
+      return STATUS_OPTIONS;
+    }
+    const currentPriority = getStatusPriority(selectedRecord.status);
+    if (currentPriority === undefined) {
+      return STATUS_OPTIONS;
+    }
+    return STATUS_OPTIONS.filter(option => {
+      const optionPriority = getStatusPriority(option.value);
+      if (optionPriority === undefined) {
+        return false;
+      }
+      return optionPriority < currentPriority;
+    });
+  }, [selectedRecord]);
+
+  useEffect(() => {
+    if (selectedStatus && !availableStatusOptions.some(option => option.value === selectedStatus)) {
+      setSelectedStatus("");
+    }
+  }, [availableStatusOptions, selectedStatus]);
+
   const handleSave = async () => {
     if (!selectedRecord) {
       toast({
@@ -129,7 +172,7 @@ export default function EditRecords() {
       return;
     }
 
-    const statusConfig = STATUS_OPTIONS.find(option => option.value === selectedStatus);
+    const statusConfig = availableStatusOptions.find(option => option.value === selectedStatus);
     if (!statusConfig) {
       toast({
         title: "Unsupported status",
@@ -282,18 +325,25 @@ export default function EditRecords() {
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <Label>New Status</Label>
-                  <Select value={selectedStatus} onValueChange={value => setSelectedStatus(value as StatusOption["value"])}>
+                  <Select
+                    value={selectedStatus}
+                    onValueChange={value => setSelectedStatus(value as StatusOption["value"])}
+                    disabled={availableStatusOptions.length === 0}
+                  >
                     <SelectTrigger>
                       <SelectValue placeholder="Select new status" />
                     </SelectTrigger>
                     <SelectContent>
-                      {STATUS_OPTIONS.map(option => (
+                      {availableStatusOptions.map(option => (
                         <SelectItem key={option.value} value={option.value}>
                           {option.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  {availableStatusOptions.length === 0 ? (
+                    <p className="text-sm text-amber-600">No lower statuses available to transition to.</p>
+                  ) : null}
                 </div>
               </div>
             ) : (
@@ -303,7 +353,11 @@ export default function EditRecords() {
             )}
 
             <div className="flex justify-end">
-              <Button onClick={handleSave} disabled={!selectedRecord || !selectedStatus || isSaving} className="min-w-[160px]">
+              <Button
+                onClick={handleSave}
+                disabled={!selectedRecord || !selectedStatus || isSaving}
+                className="min-w-[160px]"
+              >
                 {isSaving ? "Saving..." : "Save"}
               </Button>
             </div>
