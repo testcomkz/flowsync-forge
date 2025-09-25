@@ -1,11 +1,18 @@
 import { Configuration } from "@azure/msal-browser";
 import { safeLocalStorage } from '@/lib/safe-storage';
 
+// Compute redirect URIs dynamically: prefer env, else current origin, ensure trailing slash
+const withTrailingSlash = (url: string) => url.endsWith('/') ? url : `${url}/`;
+const envRedirect = (import.meta as any)?.env?.VITE_MSAL_REDIRECT_URI as string | undefined;
+const runtimeOrigin = typeof window !== 'undefined' && window.location ? window.location.origin : '';
+const computedRedirect = withTrailingSlash((envRedirect && envRedirect.trim()) || runtimeOrigin || 'http://localhost:8080');
+
 export const msalConfig: Configuration = {
   auth: {
     clientId: import.meta.env.VITE_MSAL_CLIENT_ID,
     authority: import.meta.env.VITE_MSAL_AUTHORITY,
-    redirectUri: import.meta.env.VITE_MSAL_REDIRECT_URI,
+    redirectUri: computedRedirect,
+    postLogoutRedirectUri: computedRedirect,
   },
   cache: {
     cacheLocation: "localStorage", // Изменено с sessionStorage на localStorage для постоянного хранения
