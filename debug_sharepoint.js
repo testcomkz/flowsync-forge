@@ -38,7 +38,7 @@ async function getSharePointIds() {
     console.log('📍 Step 2: Finding Excel file...');
     
     // 2. Поиск Excel файла
-    const filePath = '/UPLOADS/pipe_inspection.xlsm';
+    const filePath = '/UPLOADS/pipe-inspection.xlsm';
     const fileResponse = await fetch(
       `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/root:${filePath}?$select=id,name,webUrl`,
       { headers }

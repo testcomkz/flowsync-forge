@@ -7,8 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DateInputField } from "@/components/ui/date-input";
 import { useToast } from "@/hooks/use-toast";
+import { safeLocalStorage } from "@/lib/safe-storage";
 import { useSharePoint } from "@/contexts/SharePointContext";
 import { useSharePointInstantData } from "@/hooks/useInstantData";
 import { computePipeTo, parseTubingRecords, sanitizeNumberString } from "@/lib/tubing-records";
@@ -44,12 +46,19 @@ export default function TubingRegistryEdit() {
   const [rack, setRack] = useState("");
   const [arrivalDate, setArrivalDate] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const lastRecordIdRef = useRef<string | null>(null);
   const initialRef = useRef<{ quantity: string; rack: string; arrivalDate: string } | null>(null);
 
   useEffect(() => {
     if (!record) {
+      lastRecordIdRef.current = null;
       return;
     }
+    // Initialize form values only when the target record changes
+    if (lastRecordIdRef.current === record.id) {
+      return;
+    }
+    lastRecordIdRef.current = record.id;
     const q = record.qty || "";
     const r = record.rack || "";
     const a = record.arrival_date || "";
@@ -80,7 +89,7 @@ export default function TubingRegistryEdit() {
     if (isDirty && !confirm("Discard your changes? Changes will not be saved.")) {
       return;
     }
-    navigate(-1);
+    navigate("/edit-records");
   };
 
   const handleCancel = () => {
@@ -89,7 +98,7 @@ export default function TubingRegistryEdit() {
       setRack(initialRef.current.rack);
       setArrivalDate(initialRef.current.arrivalDate);
     }
-    navigate(-1);
+    navigate("/");
   };
 
   const pipeFrom = record?.pipe_from ?? "";
@@ -114,6 +123,12 @@ export default function TubingRegistryEdit() {
       return;
     }
 
+    // If nothing changed, just notify
+    if (!isDirty) {
+      toast({ title: "No changes", description: "There are no changes to update." });
+      return;
+    }
+
     setIsSaving(true);
     try {
       const pipeToValue = computedPipeTo || record.pipe_to || "";
@@ -130,7 +145,7 @@ export default function TubingRegistryEdit() {
         pipe_to: pipeToValue,
         rack,
         arrival_date: arrivalDate,
-        status: record.status
+        status: record.status // keep status unchanged in edit flow
       });
 
       if (!success) {
@@ -142,11 +157,9 @@ export default function TubingRegistryEdit() {
         return;
       }
 
-      toast({
-        title: "Tubing registry updated",
-        description: `${record.batch} saved successfully.`
-      });
+      toast({ title: "Tubing registry updated", description: `${record.batch} saved successfully.` });
 
+      safeLocalStorage.removeItem("sharepoint_last_refresh");
       await refreshDataInBackground(sharePointService);
       navigate("/edit-records");
     } catch (error) {
@@ -222,29 +235,41 @@ export default function TubingRegistryEdit() {
                   </div>
                   <div className="space-y-2">
                     <Label>Rack</Label>
-                    <Input
-                      value={rack}
-                      onChange={event => setRack(event.target.value)}
-                      placeholder="Enter rack"
-                      className="h-9"
-                    />
+                    <Select value={rack} onValueChange={setRack}>
+                      <SelectTrigger className="h-9">
+                        <SelectValue placeholder="Select rack" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 7 }).map((_, index) => {
+                          const rackLabel = `Rack-${index + 1}`;
+                          return (
+                            <SelectItem key={rackLabel} value={rackLabel}>
+                              {rackLabel}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-3">
-                  <div className="space-y-2">
+                <div className="flex gap-3">
+                  <div className="flex-1 space-y-2">
                     <Label>Pipe From</Label>
                     <Input value={pipeFrom || "—"} readOnly className="bg-white h-9" />
                   </div>
-                  <div className="space-y-2">
+                  <div className="flex-1 space-y-2">
                     <Label>Pipe To</Label>
                     <Input value={computedPipeTo || record?.pipe_to || "—"} readOnly className="bg-white h-9" />
                   </div>
-                  <DateInputField label="Arrival Date" value={arrivalDate} onChange={setArrivalDate} />
+                  <div className="flex-1 space-y-2">
+                    <Label>Arrival Date</Label>
+                    <DateInputField value={arrivalDate} onChange={setArrivalDate} className="h-9" />
+                  </div>
                 </div>
 
                 <div className="flex justify-end gap-3">
-                  <Button variant="outline" onClick={handleCancel} className="min-w-[120px]">Cancel</Button>
+                  <Button variant="destructive" onClick={handleCancel} className="min-w-[120px]">Cancel</Button>
                   <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[140px]">
                     {isSaving ? "Updating..." : "Update"}
                   </Button>

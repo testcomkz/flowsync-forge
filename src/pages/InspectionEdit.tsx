@@ -208,12 +208,12 @@ export default function InspectionEdit() {
     if (isDirty && !confirm("Discard your changes? Changes will not be saved.")) {
       return;
     }
-    navigate(-1);
+    navigate("/edit-records");
   };
 
   const handleCancel = () => {
     if (!initialRef.current) {
-      navigate(-1);
+      navigate("/");
       return;
     }
     const init = initialRef.current;
@@ -225,7 +225,7 @@ export default function InspectionEdit() {
     setRepair(init.repair);
     setStartDate(init.startDate);
     setEndDate(init.endDate);
-    navigate(-1);
+    navigate("/");
   };
 
   const computedScrapTotal = useMemo(
@@ -308,7 +308,6 @@ export default function InspectionEdit() {
         class_2: class2,
         class_3: class3,
         repair,
-        scrap: scrapValue,
         start_date: startDate,
         end_date: endDate,
         rattling_qty: Number(calculatedStageQuantities.rattling || 0),
@@ -318,13 +317,6 @@ export default function InspectionEdit() {
         drift_qty: Number(calculatedStageQuantities.drift || 0),
         emi_qty: Number(calculatedStageQuantities.emi || 0),
         marking_qty: Number(calculatedStageQuantities.marking || 0),
-        status: "Inspection Done",
-        rattling_scrap_qty: Number(scrapQuantities.rattling || 0),
-        external_scrap_qty: Number(scrapQuantities.external || 0),
-        jetting_scrap_qty: Number(scrapQuantities.jetting || 0),
-        mpi_scrap_qty: Number(scrapQuantities.mpi || 0),
-        drift_scrap_qty: Number(scrapQuantities.drift || 0),
-        emi_scrap_qty: Number(scrapQuantities.emi || 0),
         originalClient: record.originalClient,
         originalWo: record.originalWo,
         originalBatch: record.originalBatch
@@ -339,11 +331,11 @@ export default function InspectionEdit() {
         return;
       }
 
-      toast({
-        title: "Inspection updated",
-        description: `${record.batch} marked as Inspection Done.`
-      });
+      toast({ title: "Changes saved", description: `${record.batch} updated successfully.` });
 
+      import("@/lib/safe-storage").then(({ safeLocalStorage }) => {
+        try { safeLocalStorage.removeItem("sharepoint_last_refresh"); } catch {}
+      });
       await refreshDataInBackground(sharePointService);
       navigate("/edit-records");
     } catch (error) {
@@ -498,9 +490,9 @@ export default function InspectionEdit() {
                 </div>
 
                 <div className="flex justify-end gap-3">
-                  <Button variant="outline" onClick={handleCancel} className="min-w-[120px]">Cancel</Button>
+                  <Button variant="destructive" onClick={handleCancel} className="min-w-[120px]">Cancel</Button>
                   <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[140px]">
-                    {isSaving ? "Updating..." : "Update"}
+                    {isSaving ? "Saving..." : "Save"}
                   </Button>
                 </div>
               </CardContent>

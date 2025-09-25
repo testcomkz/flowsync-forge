@@ -107,9 +107,11 @@ export default function EditRecords() {
       return STATUS_OPTIONS;
     }
 
+    // Only allow navigating to earlier stages (strictly lower rank),
+    // Edit Records must not advance or re-open the same stage.
     return STATUS_OPTIONS.filter(option => {
       const optionRank = getStatusRank(option.value);
-      return optionRank !== -1 && optionRank <= currentRank;
+      return optionRank !== -1 && optionRank < currentRank;
     });
   }, [selectedRecord]);
 
@@ -181,7 +183,7 @@ export default function EditRecords() {
       <Header />
       <main className="container mx-auto px-4 py-5">
         <div className="mb-4 flex items-center justify-between">
-          <Button variant="ghost" onClick={() => navigate(-1)} className="flex items-center gap-2 text-slate-600">
+          <Button variant="ghost" onClick={() => navigate("/")} className="flex items-center gap-2 text-slate-600">
             <ArrowLeft className="h-4 w-4" />
             Back
           </Button>

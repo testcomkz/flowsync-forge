@@ -10,6 +10,108 @@ export class SharePointService {
     this.graphClient = Client.initWithMiddleware({ authProvider });
   }
 
+  // Read a range (values and formulas) from Excel
+  private async readExcelRange(worksheetName: string, range: string): Promise<{ values?: any[][]; formulas?: any[][] } | null> {
+    try {
+      const siteId = await this.getSiteId();
+      const fileId = await this.findExcelFile();
+
+      // Resolve actual worksheet name (case-insensitive)
+      let actualSheetName = worksheetName;
+      try {
+        const availableSheets = await this.getWorksheetNames();
+        if (!availableSheets.includes(worksheetName)) {
+          const foundSheet =
+            availableSheets.find(s => s.toLowerCase() === worksheetName.toLowerCase()) ||
+            availableSheets.find(s => s.toLowerCase().includes(worksheetName.toLowerCase()) || worksheetName.toLowerCase().includes(s.toLowerCase()));
+          if (foundSheet) {
+            actualSheetName = foundSheet;
+          }
+        }
+      } catch {}
+
+      const doGet = async () => {
+        const sessionId = await this.getWorkbookSessionId();
+        return await this.graphClient
+          .api(`/sites/${siteId}/drive/items/${fileId}/workbook/worksheets('${actualSheetName}')/range(address='${range}')`)
+          .header('workbook-session-id', sessionId)
+          .get();
+      };
+
+      let attempt = 1;
+      const maxAttempts = 5;
+      while (attempt <= maxAttempts) {
+        try {
+          const res = await doGet();
+          return { values: res?.values, formulas: res?.formulas };
+        } catch (err) {
+          if (this.isRetryableError(err)) {
+            this.resetWorkbookSession();
+            await this.delay(this.backoffDelay(attempt, 600, 8000));
+            attempt++;
+            continue;
+          }
+          throw err;
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error('Error reading Excel range:', error);
+      return null;
+    }
+  }
+
+  // Write formulas to a range (keeps formulas intact instead of literal values)
+  private async writeExcelFormulas(worksheetName: string, range: string, formulas: any[][]): Promise<boolean> {
+    try {
+      const siteId = await this.getSiteId();
+      const fileId = await this.findExcelFile();
+
+      // Resolve sheet name
+      let actualSheetName = worksheetName;
+      try {
+        const availableSheets = await this.getWorksheetNames();
+        if (!availableSheets.includes(worksheetName)) {
+          const foundSheet =
+            availableSheets.find(s => s.toLowerCase() === worksheetName.toLowerCase()) ||
+            availableSheets.find(s => s.toLowerCase().includes(worksheetName.toLowerCase()) || worksheetName.toLowerCase().includes(s.toLowerCase()));
+          if (foundSheet) {
+            actualSheetName = foundSheet;
+          }
+        }
+      } catch {}
+
+      const doPatch = async () => {
+        const sessionId = await this.getWorkbookSessionId();
+        await this.graphClient
+          .api(`/sites/${siteId}/drive/items/${fileId}/workbook/worksheets('${actualSheetName}')/range(address='${range}')`)
+          .header('workbook-session-id', sessionId)
+          .patch({ formulas });
+      };
+
+      let attempt = 1;
+      const maxAttempts = 5;
+      while (attempt <= maxAttempts) {
+        try {
+          await doPatch();
+          return true;
+        } catch (err) {
+          if (this.isRetryableError(err)) {
+            this.resetWorkbookSession();
+            await this.delay(this.backoffDelay(attempt, 600, 8000));
+            attempt++;
+            continue;
+          }
+          throw err;
+        }
+      }
+      return false;
+    } catch (error) {
+      console.error('Error writing Excel formulas:', error);
+      return false;
+    }
+  }
+
   // Создаем (и кэшируем) сессию Excel, чтобы избежать блокировок файла
   private async getWorkbookSessionId(): Promise<string> {
     if (this.workbookSessionId) return this.workbookSessionId;
@@ -760,7 +862,78 @@ export class SharePointService {
         }
       }
 
+      // If base Qty or the starting point potentially changed, recompute pipe_from/pipe_to chain
       if (overallSuccess) {
+        try {
+          const qtyIndex = findColumn((header, canonical) => {
+            const c = canonical ?? header;
+            return c === 'qty' || c === 'quantity' || (c.includes('qty') && !c.includes('scrap') && !c.includes('rattling') && !c.includes('external') && !c.includes('hydro') && !c.includes('mpi') && !c.includes('drift') && !c.includes('emi') && !c.includes('marking'));
+          });
+          const pipeFromIndex = findColumn((header, canonical) => {
+            const c = canonical ?? header;
+            return c.includes('pipe_from') || (c.includes('from') && !c.includes('to'));
+          });
+          const pipeToIndex = findColumn((header, canonical) => {
+            const c = canonical ?? header;
+            return c.includes('pipe_to') || (c.endsWith('to') || c.includes('to'));
+          });
+
+          const num = (v: unknown): number | null => {
+            if (v === null || v === undefined) return null;
+            const n = Number(String(v).replace(/[^0-9.-]/g, ''));
+            return Number.isFinite(n) ? Math.floor(n) : null;
+          };
+
+          if (qtyIndex !== -1 && pipeFromIndex !== -1 && pipeToIndex !== -1) {
+            // Build list of rows for the same client+wo starting from the edited row to the end of the block
+            const sameGroup = (row: any[]) =>
+              normalize(row[clientIndex]) === normalize(data.client) && normalize(row[woIndex]) === normalize(data.wo_no);
+
+            // Determine starting pipe_from and qty from the edited row
+            const currentPipeFrom = data.pipe_from !== undefined && data.pipe_from !== null
+              ? num(data.pipe_from)
+              : num(values[rowIndex][pipeFromIndex]);
+            const currentQty = data.qty !== undefined && data.qty !== null
+              ? num(data.qty)
+              : num(values[rowIndex][qtyIndex]);
+
+            let prevPipeTo: number | null = null;
+            if (currentPipeFrom !== null && currentQty !== null) {
+              const newPipeTo = currentPipeFrom + currentQty - 1;
+              prevPipeTo = newPipeTo;
+              // Write pipe_to for the edited row
+              const pipeToCol = this.indexToColLetters(meta.startCol + pipeToIndex);
+              const editedRowNum = meta.startRow + rowIndex;
+              await this.writeExcelData('tubing', `${pipeToCol}${editedRowNum}:${pipeToCol}${editedRowNum}`, [[String(newPipeTo)]]);
+            }
+
+            // Propagate updates to subsequent rows in the same group
+            for (let i = rowIndex + 1; i < values.length; i++) {
+              const row = values[i];
+              if (!Array.isArray(row)) break;
+              if (!sameGroup(row)) break; // stop at first different group
+
+              const rowQty = num(row[qtyIndex]);
+              if (rowQty === null) continue; // cannot compute without qty
+
+              const nextPipeFrom = prevPipeTo !== null ? prevPipeTo + 1 : num(row[pipeFromIndex]);
+              if (nextPipeFrom === null) continue;
+              const nextPipeTo = nextPipeFrom + rowQty - 1;
+              prevPipeTo = nextPipeTo;
+
+              const pfCol = this.indexToColLetters(meta.startCol + pipeFromIndex);
+              const ptCol = this.indexToColLetters(meta.startCol + pipeToIndex);
+              const excelRow = meta.startRow + i;
+              // Write pipe_from
+              await this.writeExcelData('tubing', `${pfCol}${excelRow}:${pfCol}${excelRow}`, [[String(nextPipeFrom)]]);
+              // Write pipe_to
+              await this.writeExcelData('tubing', `${ptCol}${excelRow}:${ptCol}${excelRow}`, [[String(nextPipeTo)]]);
+            }
+          }
+        } catch (chainErr) {
+          console.warn('⚠️ Failed to recompute pipe_from/pipe_to chain after update:', chainErr);
+        }
+
         safeLocalStorage.removeItem('sharepoint_cached_tubing');
         safeLocalStorage.removeItem('sharepoint_cache_timestamp_tubing');
       }
@@ -1048,6 +1221,66 @@ export class SharePointService {
           console.log(`❌ Failed to write tubing data segment at ${segmentRange}`);
           return false;
         }
+      }
+
+      // Attempt to preserve formulas by copying them from the previous row for any columns
+      // that were not explicitly set with values above (e.g., Scrap_Qty computed columns)
+      try {
+        const endColIdx = startColIdx + headers.length - 1; // 1-based indices
+        const rowAbove = absoluteInsertRow - 1;
+        if (rowAbove >= (usedInfo?.meta?.startRow ?? 1)) {
+          const startLetters = this.indexToColLetters(startColIdx);
+          const endLetters = this.indexToColLetters(endColIdx);
+          const prevRange = `${startLetters}${rowAbove}:${endLetters}${rowAbove}`;
+          const prev = await this.readExcelRange('tubing', prevRange);
+          const prevFormulas = prev?.formulas?.[0] || [];
+
+          if (prevFormulas && prevFormulas.length) {
+            // Build a set of indexes that we already wrote explicit values to, to avoid overriding
+            const valueIndexes = new Set<number>();
+            for (const seg of segments) {
+              for (let i = seg.start; i <= seg.end; i++) valueIndexes.add(i);
+            }
+
+            // Prepare contiguous formula segments to write
+            type FSeg = { start: number; end: number; formulas: any[] };
+            const fsegs: FSeg[] = [];
+            let cur: FSeg | null = null;
+            for (let i = 0; i < headers.length; i++) {
+              const f = prevFormulas[i];
+              const hasFormula = typeof f === 'string' && f.trim().startsWith('=');
+              const canWriteHere = hasFormula && !valueIndexes.has(i);
+              if (!canWriteHere) {
+                cur = null;
+                continue;
+              }
+              if (!cur) {
+                cur = { start: i, end: i, formulas: [f] };
+                fsegs.push(cur);
+              } else if (i === cur.end + 1) {
+                cur.end = i;
+                cur.formulas.push(f);
+              } else {
+                cur = { start: i, end: i, formulas: [f] };
+                fsegs.push(cur);
+              }
+            }
+
+            for (const fseg of fsegs) {
+              const fStartCol = this.indexToColLetters(startColIdx + fseg.start);
+              const fEndCol = this.indexToColLetters(startColIdx + fseg.end);
+              const fRange = `${fStartCol}${absoluteInsertRow}:${fEndCol}${absoluteInsertRow}`;
+              const formulasRow = [fseg.formulas.slice()];
+              console.log(`🔁 Copying formulas into ${fRange} for ${fseg.formulas.length} cells`);
+              const ok = await this.writeExcelFormulas('tubing', fRange, formulasRow);
+              if (!ok) {
+                console.warn(`⚠️ Failed to write formulas into ${fRange}`);
+              }
+            }
+          }
+        }
+      } catch (formulaErr) {
+        console.warn('⚠️ Could not copy formulas to new tubing row:', formulaErr);
       }
 
       if (segments.length === 0) {
@@ -1734,7 +1967,10 @@ export class SharePointService {
       applyValue(header => header.includes('class 2') || header.includes('class_2'), data.class_2);
       applyValue(header => header.includes('class 3') || header.includes('class_3'), data.class_3);
       applyValue(header => header.includes('repair'), data.repair);
-      applyValue(header => header.includes('status'), data.status ?? 'Inspection Done');
+      // Conditionally update status only if explicitly provided (e.g., in Inspection Data entry flow)
+      if (data.status) {
+        applyValue(header => header.includes('status'), data.status);
+      }
       applyValue((header, canonical) => {
         const c = canonical ?? header;
         return header.includes('start date') || c.includes('start_date');
@@ -1743,20 +1979,15 @@ export class SharePointService {
         const c = canonical ?? header;
         return header.includes('end date') || c.includes('end_date');
       }, data.end_date ?? '');
-      applyValue(
-        header => header.includes('scrap') && !header.includes('scrap_qty'),
-        data.scrap ?? ''
-      );
+      // Do NOT write to total 'Scrap' column; keep Excel formulas intact
 
-      applyValue((header, canonical) => canonical.includes('rattling_scrap'), data.rattling_scrap_qty ?? '');
-      applyValue((header, canonical) => canonical.includes('external_scrap'), data.external_scrap_qty ?? '');
-      applyValue(
-        (header, canonical) => canonical.includes('hydro_scrap') || canonical.includes('jetting_scrap'),
-        data.jetting_scrap_qty ?? ''
-      );
-      applyValue((header, canonical) => canonical.includes('mpi_scrap'), data.mpi_scrap_qty ?? '');
-      applyValue((header, canonical) => canonical.includes('drift_scrap'), data.drift_scrap_qty ?? '');
-      applyValue((header, canonical) => canonical.includes('emi_scrap'), data.emi_scrap_qty ?? '');
+      // For Inspection Data entry we allow writing per-stage Scrap_Qty columns (edit flow passes no values)
+      if (data.rattling_scrap_qty !== undefined) applyValue((header, canonical) => canonical.includes('rattling_scrap'), data.rattling_scrap_qty ?? '');
+      if (data.external_scrap_qty !== undefined) applyValue((header, canonical) => canonical.includes('external_scrap'), data.external_scrap_qty ?? '');
+      if (data.jetting_scrap_qty !== undefined) applyValue((header, canonical) => canonical.includes('hydro_scrap') || canonical.includes('jetting_scrap'), data.jetting_scrap_qty ?? '');
+      if (data.mpi_scrap_qty !== undefined) applyValue((header, canonical) => canonical.includes('mpi_scrap'), data.mpi_scrap_qty ?? '');
+      if (data.drift_scrap_qty !== undefined) applyValue((header, canonical) => canonical.includes('drift_scrap'), data.drift_scrap_qty ?? '');
+      if (data.emi_scrap_qty !== undefined) applyValue((header, canonical) => canonical.includes('emi_scrap'), data.emi_scrap_qty ?? '');
 
       applyValue(
         (header, canonical) => {
