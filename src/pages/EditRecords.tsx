@@ -109,7 +109,7 @@ export default function EditRecords() {
 
     return STATUS_OPTIONS.filter(option => {
       const optionRank = getStatusRank(option.value);
-      return optionRank !== -1 && optionRank <= currentRank;
+      return optionRank !== -1 && optionRank < currentRank;
     });
   }, [selectedRecord]);
 

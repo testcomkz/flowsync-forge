@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, Layers } from "lucide-react";
 
@@ -44,30 +44,101 @@ export default function TubingRegistryEdit() {
   const [rack, setRack] = useState("");
   const [arrivalDate, setArrivalDate] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [initialValues, setInitialValues] = useState({
+    quantity: "",
+    rack: "",
+    arrivalDate: "",
+  });
+
+  const lastRecordIdRef = useRef<string | null>(null);
+
+  const hasChanges =
+    quantity !== initialValues.quantity || rack !== initialValues.rack || arrivalDate !== initialValues.arrivalDate;
 
   useEffect(() => {
     if (!record) {
       return;
     }
-    setQuantity(record.qty || "");
-    setRack(record.rack || "");
-    setArrivalDate(record.arrival_date || "");
-  }, [record]);
+
+    if (lastRecordIdRef.current === record.id && hasChanges) {
+      return;
+    }
+
+    const nextValues = {
+      quantity: sanitizeNumberString(record.qty || ""),
+      rack: record.rack || "",
+      arrivalDate: record.arrival_date || "",
+    };
+
+    setQuantity(nextValues.quantity);
+    setRack(nextValues.rack);
+    setArrivalDate(nextValues.arrivalDate);
+    setInitialValues(nextValues);
+    lastRecordIdRef.current = record.id;
+  }, [hasChanges, record]);
 
   const handleBack = () => {
+    if (hasChanges) {
+      const shouldDiscard = window.confirm("Discard your unsaved changes and return to Edit Records?");
+      if (!shouldDiscard) {
+        return;
+      }
+    }
+    navigate("/edit-records");
+  };
+
+  const handleCancel = async () => {
+    const shouldDiscard = hasChanges
+      ? window.confirm("Cancel editing and discard all changes for this batch?")
+      : true;
+
+    if (!shouldDiscard) {
+      return;
+    }
+
+    setQuantity(initialValues.quantity);
+    setRack(initialValues.rack);
+    setArrivalDate(initialValues.arrivalDate);
+
+    if (sharePointService && isConnected) {
+      await refreshDataInBackground(sharePointService);
+    }
+
     navigate("/edit-records");
   };
 
   const pipeFrom = record?.pipe_from ?? "";
   const computedPipeTo = useMemo(() => computePipeTo(pipeFrom, quantity || ""), [pipeFrom, quantity]);
 
-  const handleUpdate = async () => {
+  const goToInspectionEdit = () => {
+    if (!record) {
+      return;
+    }
+    navigate("/inspection-edit", {
+      state: {
+        client: record.client,
+        wo_no: record.wo_no,
+        batch: record.batch,
+      },
+    });
+  };
+
+  const handleContinue = async () => {
     if (!record) {
       toast({
         title: "Batch not found",
         description: "Return to Edit Records to choose a batch.",
         variant: "destructive"
       });
+      return;
+    }
+
+    if (!hasChanges) {
+      toast({
+        title: "No changes detected",
+        description: "Existing tubing registry data kept. Continuing to inspection stage."
+      });
+      goToInspectionEdit();
       return;
     }
 
@@ -110,11 +181,16 @@ export default function TubingRegistryEdit() {
 
       toast({
         title: "Tubing registry updated",
-        description: `${record.batch} saved successfully.`
+        description: `${record.batch} saved successfully. Moving to inspection stage.`
       });
 
       await refreshDataInBackground(sharePointService);
-      navigate("/edit-records");
+      setInitialValues({
+        quantity,
+        rack,
+        arrivalDate,
+      });
+      goToInspectionEdit();
     } catch (error) {
       console.error("Failed to update tubing registry", error);
       toast({
@@ -207,9 +283,17 @@ export default function TubingRegistryEdit() {
                   <DateInputField label="Arrival Date" value={arrivalDate} onChange={setArrivalDate} />
                 </div>
 
-                <div className="flex justify-end">
-                  <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[160px]">
-                    {isSaving ? "Updating..." : "Update"}
+                <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={handleCancel}
+                    className="min-w-[140px]"
+                  >
+                    Cancel
+                  </Button>
+                  <Button onClick={handleContinue} disabled={isSaving} className="min-w-[160px]">
+                    {isSaving ? "Saving..." : "Continue"}
                   </Button>
                 </div>
               </>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, ClipboardCheck } from "lucide-react";
 
@@ -78,36 +78,113 @@ export default function InspectionEdit() {
   const [endDate, setEndDate] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
+  const [initialState, setInitialState] = useState({
+    scrapQuantities: {
+      rattling: "",
+      external: "",
+      jetting: "",
+      mpi: "",
+      drift: "",
+      emi: "",
+    } as Record<ScrapKey, string>,
+    class1: "",
+    class2: "",
+    class3: "",
+    repair: "",
+    scrapValue: "",
+    startDate: "",
+    endDate: "",
+  });
+
+  const lastRecordIdRef = useRef<string | null>(null);
+
+  const scrapChanged = (Object.keys(scrapQuantities) as ScrapKey[]).some(
+    key => scrapQuantities[key] !== initialState.scrapQuantities[key]
+  );
+
+  const hasChanges =
+    scrapChanged ||
+    class1 !== initialState.class1 ||
+    class2 !== initialState.class2 ||
+    class3 !== initialState.class3 ||
+    repair !== initialState.repair ||
+    scrapValue !== initialState.scrapValue ||
+    startDate !== initialState.startDate ||
+    endDate !== initialState.endDate;
+
   useEffect(() => {
     if (!record) {
       return;
     }
 
-    setScrapQuantities(prev => ({
-      ...prev,
+    if (lastRecordIdRef.current === record.id && hasChanges) {
+      return;
+    }
+
+    const nextScrapValues: Record<ScrapKey, string> = {
       rattling: sanitizeNumberString(record.scrap.rattling ?? ""),
       external: sanitizeNumberString(record.scrap.external ?? ""),
       jetting: sanitizeNumberString(record.scrap.jetting ?? ""),
       mpi: sanitizeNumberString(record.scrap.mpi ?? ""),
       drift: sanitizeNumberString(record.scrap.drift ?? ""),
       emi: sanitizeNumberString(record.scrap.emi ?? ""),
-    }));
+    };
 
-    setClass1(record.class_1 || "");
-    setClass2(record.class_2 || "");
-    setClass3(record.class_3 || "");
-    setRepair(record.repair || "");
-    setScrapValue(record.scrapTotal || "");
-    setStartDate(record.start_date || "");
-    setEndDate(record.end_date || "");
-  }, [record]);
+    const nextState = {
+      scrapQuantities: nextScrapValues,
+      class1: record.class_1 || "",
+      class2: record.class_2 || "",
+      class3: record.class_3 || "",
+      repair: record.repair || "",
+      scrapValue: sanitizeNumberString(record.scrapTotal || ""),
+      startDate: record.start_date || "",
+      endDate: record.end_date || "",
+    };
 
-  const handleScrapChange = (key: ScrapKey, value: string) => {
-    const sanitized = sanitizeNumberString(value);
-    setScrapQuantities(prev => ({ ...prev, [key]: sanitized }));
-  };
+    setScrapQuantities(nextScrapValues);
+    setClass1(nextState.class1);
+    setClass2(nextState.class2);
+    setClass3(nextState.class3);
+    setRepair(nextState.repair);
+    setScrapValue(nextState.scrapValue);
+    setStartDate(nextState.startDate);
+    setEndDate(nextState.endDate);
+    setInitialState(nextState);
+    lastRecordIdRef.current = record.id;
+  }, [hasChanges, record]);
 
   const handleBack = () => {
+    if (hasChanges) {
+      const shouldDiscard = window.confirm("Discard your unsaved changes and return to Edit Records?");
+      if (!shouldDiscard) {
+        return;
+      }
+    }
+    navigate("/edit-records");
+  };
+
+  const handleCancel = async () => {
+    const shouldDiscard = hasChanges
+      ? window.confirm("Cancel editing and discard all inspection changes?")
+      : true;
+
+    if (!shouldDiscard) {
+      return;
+    }
+
+    setScrapQuantities(initialState.scrapQuantities);
+    setClass1(initialState.class1);
+    setClass2(initialState.class2);
+    setClass3(initialState.class3);
+    setRepair(initialState.repair);
+    setScrapValue(initialState.scrapValue);
+    setStartDate(initialState.startDate);
+    setEndDate(initialState.endDate);
+
+    if (sharePointService && isConnected) {
+      await refreshDataInBackground(sharePointService);
+    }
+
     navigate("/edit-records");
   };
 
@@ -198,6 +275,15 @@ export default function InspectionEdit() {
       return;
     }
 
+    if (!hasChanges) {
+      toast({
+        title: "No changes detected",
+        description: "Inspection data left unchanged."
+      });
+      navigate("/edit-records");
+      return;
+    }
+
     if (!sharePointService || !isConnected) {
       toast({
         title: "SharePoint not connected",
@@ -228,12 +314,6 @@ export default function InspectionEdit() {
         emi_qty: toNumericValue(computedStageQuantities.emi ?? ""),
         marking_qty: toNumericValue(computedStageQuantities.marking ?? ""),
         status: "Inspection Done",
-        rattling_scrap_qty: toNumericValue(scrapQuantities.rattling ?? ""),
-        external_scrap_qty: toNumericValue(scrapQuantities.external ?? ""),
-        jetting_scrap_qty: toNumericValue(scrapQuantities.jetting ?? ""),
-        mpi_scrap_qty: toNumericValue(scrapQuantities.mpi ?? ""),
-        drift_scrap_qty: toNumericValue(scrapQuantities.drift ?? ""),
-        emi_scrap_qty: toNumericValue(scrapQuantities.emi ?? ""),
         originalClient: record.originalClient,
         originalWo: record.originalWo,
         originalBatch: record.originalBatch
@@ -254,6 +334,16 @@ export default function InspectionEdit() {
       });
 
       await refreshDataInBackground(sharePointService);
+      setInitialState({
+        scrapQuantities: { ...scrapQuantities },
+        class1,
+        class2,
+        class3,
+        repair,
+        scrapValue,
+        startDate,
+        endDate,
+      });
       navigate("/edit-records");
     } catch (error) {
       console.error("Failed to update inspection data", error);
@@ -342,10 +432,10 @@ export default function InspectionEdit() {
                             {stage.scrapKey ? (
                               <Input
                                 value={scrapQuantities[stage.scrapKey] ?? ""}
-                                onChange={event => handleScrapChange(stage.scrapKey!, event.target.value)}
+                                readOnly
                                 inputMode="numeric"
                                 placeholder="0"
-                                className="h-9"
+                                className="h-9 bg-slate-100"
                               />
                             ) : (
                               <span className="text-muted-foreground">—</span>
@@ -405,9 +495,17 @@ export default function InspectionEdit() {
                   </div>
                 </div>
 
-                <div className="flex justify-end">
+                <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={handleCancel}
+                    className="min-w-[140px]"
+                  >
+                    Cancel
+                  </Button>
                   <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[160px]">
-                    {isSaving ? "Updating..." : "Update"}
+                    {isSaving ? "Saving..." : "Save"}
                   </Button>
                 </div>
               </CardContent>

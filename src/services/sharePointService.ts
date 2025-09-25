@@ -1748,16 +1748,6 @@ export class SharePointService {
         data.scrap ?? ''
       );
 
-      applyValue((header, canonical) => canonical.includes('rattling_scrap'), data.rattling_scrap_qty ?? '');
-      applyValue((header, canonical) => canonical.includes('external_scrap'), data.external_scrap_qty ?? '');
-      applyValue(
-        (header, canonical) => canonical.includes('hydro_scrap') || canonical.includes('jetting_scrap'),
-        data.jetting_scrap_qty ?? ''
-      );
-      applyValue((header, canonical) => canonical.includes('mpi_scrap'), data.mpi_scrap_qty ?? '');
-      applyValue((header, canonical) => canonical.includes('drift_scrap'), data.drift_scrap_qty ?? '');
-      applyValue((header, canonical) => canonical.includes('emi_scrap'), data.emi_scrap_qty ?? '');
-
       applyValue(
         (header, canonical) => {
           const c = canonical ?? header;
