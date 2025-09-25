@@ -26,6 +26,9 @@ export const Header = () => {
   
   console.log('Header render:', { user, isAuthenticated });
 
+  // Resolve logo path via Vite base URL so it works in dev, Vercel, and Electron
+  const logoSrc = `${import.meta.env.BASE_URL}logotype.png`;
+
   const handleLogin = () => {
     setShowLoginForm(true);
   };
@@ -106,11 +109,9 @@ export const Header = () => {
     <header className="border-b bg-white shadow-sm">
       <div className="container mx-auto px-4 py-3 flex items-center justify-between">
         {/* Logo */}
-        <div className="flex items-center space-x-2">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-sm">FS</span>
-          </div>
-          <span className="text-xl font-semibold text-gray-900">FlowSync Forge</span>
+        <div className="flex items-center space-x-3">
+          <img src={logoSrc} alt="Pipe Inspection System" className="h-12 w-auto" />
+          <span className="text-xl font-semibold text-gray-900">Pipe Inspection System</span>
         </div>
         
         {/* Authentication */}
