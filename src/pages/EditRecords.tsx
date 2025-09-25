@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, ClipboardEdit } from "lucide-react";
 
 import { Header } from "@/components/layout/Header";
@@ -46,15 +46,20 @@ const uniqueSorted = (values: string[]) => Array.from(new Set(values.filter(Bool
 
 export default function EditRecords() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
   const { tubingData } = useSharePointInstantData();
   const { sharePointService, isConnected, refreshDataInBackground } = useSharePoint();
 
-  const [selectedClient, setSelectedClient] = useState("");
-  const [selectedWorkOrder, setSelectedWorkOrder] = useState("");
-  const [selectedBatch, setSelectedBatch] = useState("");
+  const locationState = (location.state as { client?: string; wo_no?: string; batch?: string } | null) ?? null;
+
+  const [selectedClient, setSelectedClient] = useState(locationState?.client ?? "");
+  const [selectedWorkOrder, setSelectedWorkOrder] = useState(locationState?.wo_no ?? "");
+  const [selectedBatch, setSelectedBatch] = useState(locationState?.batch ?? "");
   const [selectedStatus, setSelectedStatus] = useState<StatusOption["value"] | "">("");
   const [isSaving, setIsSaving] = useState(false);
+
+  const restoringPrefill = useRef(false);
 
   const tubingRecords = useMemo(() => parseTubingRecords(tubingData ?? []), [tubingData]);
 
@@ -114,13 +119,45 @@ export default function EditRecords() {
   }, [selectedRecord]);
 
   useEffect(() => {
+    if (!locationState) {
+      return;
+    }
+
+    restoringPrefill.current = true;
+    if (locationState.client) {
+      setSelectedClient(locationState.client);
+    }
+    if (locationState.wo_no) {
+      setSelectedWorkOrder(locationState.wo_no);
+    }
+    if (locationState.batch) {
+      setSelectedBatch(locationState.batch);
+    }
+
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, locationState, navigate]);
+
+  useEffect(() => {
+    if (restoringPrefill.current) {
+      return;
+    }
     setSelectedWorkOrder("");
     setSelectedBatch("");
   }, [selectedClient]);
 
   useEffect(() => {
+    if (restoringPrefill.current) {
+      return;
+    }
     setSelectedBatch("");
   }, [selectedWorkOrder]);
+
+  useEffect(() => {
+    if (!restoringPrefill.current) {
+      return;
+    }
+    restoringPrefill.current = false;
+  }, [selectedBatch, selectedClient, selectedWorkOrder]);
 
   useEffect(() => {
     setSelectedStatus("");
@@ -253,16 +290,16 @@ export default function EditRecords() {
           </div>
         </div>
 
-        <Card className="border-2 border-slate-200 shadow-sm">
+        <Card className="border border-slate-200 shadow-sm">
           <CardHeader className="border-b bg-white/80">
-            <CardTitle className="text-xl font-semibold text-slate-900">Batch Selection</CardTitle>
+            <CardTitle className="text-lg font-semibold text-slate-900">Batch Selection</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-6 p-6">
-            <div className="grid gap-4 md:grid-cols-3">
+          <CardContent className="grid gap-6 p-5">
+            <div className="grid gap-3 md:grid-cols-3">
               <div className="space-y-2">
                 <Label>Client</Label>
                 <Select value={selectedClient} onValueChange={setSelectedClient}>
-                  <SelectTrigger>
+                  <SelectTrigger className="h-11 text-left text-sm">
                     <SelectValue placeholder="Select client" />
                   </SelectTrigger>
                   <SelectContent>
@@ -282,7 +319,7 @@ export default function EditRecords() {
                   onValueChange={setSelectedWorkOrder}
                   disabled={!selectedClient || availableWorkOrders.length === 0}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="h-11 text-left text-sm">
                     <SelectValue placeholder="Select Work Order" />
                   </SelectTrigger>
                   <SelectContent>
@@ -302,7 +339,7 @@ export default function EditRecords() {
                   onValueChange={setSelectedBatch}
                   disabled={!selectedWorkOrder || availableBatches.length === 0}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="h-11 text-left text-sm">
                     <SelectValue placeholder="Select Batch" />
                   </SelectTrigger>
                   <SelectContent>
@@ -317,14 +354,14 @@ export default function EditRecords() {
             </div>
 
             {selectedRecord ? (
-              <div className="grid gap-4 rounded-xl border border-slate-200 bg-slate-50/80 p-4 md:grid-cols-2">
+              <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3 md:grid-cols-2">
                 <div className="space-y-1 text-sm">
                   <p className="text-slate-500">Current Status</p>
-                  <p className="text-base font-semibold text-slate-900">{selectedRecord.status || "—"}</p>
+                  <p className="font-semibold text-slate-900">{selectedRecord.status || "—"}</p>
                 </div>
                 <div className="space-y-2">
                   <Label>Quantity</Label>
-                  <Input value={selectedRecord.qty || "0"} readOnly className="bg-white" />
+                  <Input value={selectedRecord.qty || "0"} readOnly className="h-11 bg-white" />
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <Label>New Status</Label>
@@ -333,7 +370,7 @@ export default function EditRecords() {
                     onValueChange={value => setSelectedStatus(value as StatusOption["value"])}
                     disabled={availableStatusOptions.length === 0}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="h-11 text-left text-sm">
                       <SelectValue placeholder="Select new status" />
                     </SelectTrigger>
                     <SelectContent>
@@ -355,8 +392,21 @@ export default function EditRecords() {
               </div>
             )}
 
-            <div className="flex justify-end">
-              <Button onClick={handleSave} disabled={!selectedRecord || !selectedStatus || isSaving} className="min-w-[160px]">
+            <div className="flex flex-col items-stretch justify-end gap-2 sm:flex-row">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setSelectedClient("");
+                  setSelectedWorkOrder("");
+                  setSelectedBatch("");
+                  setSelectedStatus("");
+                }}
+                className="h-11 min-w-[120px]"
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleSave} disabled={!selectedRecord || !selectedStatus || isSaving} className="h-11 min-w-[160px]">
                 {isSaving ? "Saving..." : "Save"}
               </Button>
             </div>

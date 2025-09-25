@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { DateInputField } from "@/components/ui/date-input";
+import { DateInputField, toDateInputValue } from "@/components/ui/date-input";
 import { useToast } from "@/hooks/use-toast";
 import { useSharePoint } from "@/contexts/SharePointContext";
 import { useSharePointInstantData } from "@/hooks/useInstantData";
 import { computePipeTo, parseTubingRecords, sanitizeNumberString } from "@/lib/tubing-records";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes";
 
 interface LocationState {
   client?: string;
@@ -40,26 +41,72 @@ export default function TubingRegistryEdit() {
     [records, client, wo_no, batch]
   );
 
-  const [quantity, setQuantity] = useState("");
-  const [rack, setRack] = useState("");
-  const [arrivalDate, setArrivalDate] = useState("");
+  const [initialValues, setInitialValues] = useState({
+    quantity: "",
+    rack: "",
+    arrivalDate: "",
+  });
+  const [quantity, setQuantity] = useState(initialValues.quantity);
+  const [rack, setRack] = useState(initialValues.rack);
+  const [arrivalDate, setArrivalDate] = useState(initialValues.arrivalDate);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (!record) {
+      setInitialValues({ quantity: "", rack: "", arrivalDate: "" });
       return;
     }
-    setQuantity(record.qty || "");
-    setRack(record.rack || "");
-    setArrivalDate(record.arrival_date || "");
+    const nextInitial = {
+      quantity: sanitizeNumberString(record.qty || ""),
+      rack: record.rack || "",
+      arrivalDate: toDateInputValue(record.arrival_date),
+    };
+    setInitialValues({ ...nextInitial });
+    setQuantity(nextInitial.quantity);
+    setRack(nextInitial.rack);
+    setArrivalDate(nextInitial.arrivalDate);
   }, [record]);
 
   const handleBack = () => {
+    if (record) {
+      navigate("/edit-records", {
+        state: { client: record.client, wo_no: record.wo_no, batch: record.batch },
+      });
+      return;
+    }
     navigate("/edit-records");
   };
 
   const pipeFrom = record?.pipe_from ?? "";
   const computedPipeTo = useMemo(() => computePipeTo(pipeFrom, quantity || ""), [pipeFrom, quantity]);
+
+  const isDirty =
+    sanitizeNumberString(quantity) !== sanitizeNumberString(initialValues.quantity) ||
+    rack !== initialValues.rack ||
+    toDateInputValue(arrivalDate) !== toDateInputValue(initialValues.arrivalDate);
+
+  useUnsavedChangesWarning(isDirty && !isSaving);
+
+  const discardAndReturn = () => {
+    if (!record) {
+      navigate("/edit-records");
+      return;
+    }
+
+    setQuantity(initialValues.quantity);
+    setRack(initialValues.rack);
+    setArrivalDate(initialValues.arrivalDate);
+    toast({
+      title: "Changes discarded",
+      description: "Tubing registry data has been restored.",
+    });
+
+    window.setTimeout(() => {
+      navigate("/edit-records", {
+        state: { client: record.client, wo_no: record.wo_no, batch: record.batch },
+      });
+    }, 0);
+  };
 
   const handleUpdate = async () => {
     if (!record) {
@@ -113,8 +160,15 @@ export default function TubingRegistryEdit() {
         description: `${record.batch} saved successfully.`
       });
 
+      setInitialValues({
+        quantity: sanitizeNumberString(quantity),
+        rack,
+        arrivalDate: toDateInputValue(arrivalDate),
+      });
       await refreshDataInBackground(sharePointService);
-      navigate("/edit-records");
+      navigate("/edit-records", {
+        state: { client: record.client, wo_no: record.wo_no, batch: record.batch },
+      });
     } catch (error) {
       console.error("Failed to update tubing registry", error);
       toast({
@@ -144,33 +198,33 @@ export default function TubingRegistryEdit() {
           </div>
         </div>
 
-        <Card className="border-2 border-amber-200 shadow-sm">
+        <Card className="border border-amber-200 shadow-sm">
           <CardHeader className="border-b bg-white/80">
-            <CardTitle className="text-xl font-semibold text-amber-900">Update Tubing Registry</CardTitle>
+            <CardTitle className="text-lg font-semibold text-amber-900">Update Tubing Registry</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-6 p-6">
+          <CardContent className="space-y-6 p-5">
             {missingSelection || !record ? (
               <div className="rounded-lg border border-dashed border-amber-300 bg-white p-6 text-center text-sm text-amber-700">
                 Batch details not found. Please return to Edit Records and select a batch.
               </div>
             ) : (
               <>
-                <div className="grid gap-4 rounded-xl border border-amber-100 bg-amber-50/70 p-4 md:grid-cols-4">
+                <div className="grid gap-3 rounded-lg border border-amber-100 bg-amber-50/60 p-3 text-sm md:grid-cols-4">
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-amber-700">Client</p>
-                    <p className="text-base font-semibold text-amber-900">{record.client}</p>
+                    <p className="text-[11px] uppercase tracking-wide text-amber-700">Client</p>
+                    <p className="font-semibold text-amber-900">{record.client}</p>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-amber-700">Work Order</p>
-                    <p className="text-base font-semibold text-amber-900">{record.wo_no}</p>
+                    <p className="text-[11px] uppercase tracking-wide text-amber-700">Work Order</p>
+                    <p className="font-semibold text-amber-900">{record.wo_no}</p>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-amber-700">Batch</p>
-                    <p className="text-base font-semibold text-amber-900">{record.batch}</p>
+                    <p className="text-[11px] uppercase tracking-wide text-amber-700">Batch</p>
+                    <p className="font-semibold text-amber-900">{record.batch}</p>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-amber-700">Diameter</p>
-                    <p className="text-base font-semibold text-amber-900">{record.diameter || "—"}</p>
+                    <p className="text-[11px] uppercase tracking-wide text-amber-700">Diameter</p>
+                    <p className="font-semibold text-amber-900">{record.diameter || "—"}</p>
                   </div>
                 </div>
 
@@ -183,6 +237,7 @@ export default function TubingRegistryEdit() {
                       onChange={event => setQuantity(sanitizeNumberString(event.target.value))}
                       inputMode="numeric"
                       placeholder="Enter quantity"
+                      className="h-11"
                     />
                   </div>
                   <div className="space-y-2">
@@ -191,6 +246,7 @@ export default function TubingRegistryEdit() {
                       value={rack}
                       onChange={event => setRack(event.target.value)}
                       placeholder="Enter rack"
+                      className="h-11"
                     />
                   </div>
                 </div>
@@ -198,17 +254,25 @@ export default function TubingRegistryEdit() {
                 <div className="grid gap-4 md:grid-cols-3">
                   <div className="space-y-2">
                     <Label>Pipe From</Label>
-                    <Input value={pipeFrom || "—"} readOnly className="bg-white" />
+                    <Input value={pipeFrom || "—"} readOnly className="h-11 bg-white" />
                   </div>
                   <div className="space-y-2">
                     <Label>Pipe To</Label>
-                    <Input value={computedPipeTo || record?.pipe_to || "—"} readOnly className="bg-white" />
+                    <Input value={computedPipeTo || record?.pipe_to || "—"} readOnly className="h-11 bg-white" />
                   </div>
-                  <DateInputField label="Arrival Date" value={arrivalDate} onChange={setArrivalDate} />
+                  <DateInputField label="Arrival Date" value={arrivalDate} onChange={setArrivalDate} className="h-11" />
                 </div>
 
-                <div className="flex justify-end">
-                  <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[160px]">
+                <div className="flex flex-col items-stretch justify-end gap-2 sm:flex-row">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={discardAndReturn}
+                    className="h-11 min-w-[120px]"
+                  >
+                    Cancel
+                  </Button>
+                  <Button onClick={handleUpdate} disabled={isSaving} className="h-11 min-w-[160px]">
                     {isSaving ? "Updating..." : "Update"}
                   </Button>
                 </div>

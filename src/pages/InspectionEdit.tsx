@@ -18,6 +18,7 @@ import {
   StageKey,
   ScrapKey
 } from "@/lib/tubing-records";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes";
 
 interface LocationState {
   client?: string;
@@ -61,46 +62,80 @@ export default function InspectionEdit() {
     [records, client, wo_no, batch]
   );
 
-  const [scrapQuantities, setScrapQuantities] = useState<Record<ScrapKey, string>>({
-    rattling: "",
-    external: "",
-    jetting: "",
-    mpi: "",
-    drift: "",
-    emi: ""
-  });
-  const [class1, setClass1] = useState("");
-  const [class2, setClass2] = useState("");
-  const [class3, setClass3] = useState("");
-  const [repair, setRepair] = useState("");
-  const [scrapValue, setScrapValue] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const defaultInitial = useMemo(
+    () => ({
+      scrapQuantities: {
+        rattling: "",
+        external: "",
+        jetting: "",
+        mpi: "",
+        drift: "",
+        emi: "",
+      } satisfies Record<ScrapKey, string>,
+      class1: "",
+      class2: "",
+      class3: "",
+      repair: "",
+      scrapValue: "",
+      startDate: "",
+      endDate: "",
+    }),
+    []
+  );
+
+  const [initialValues, setInitialValues] = useState(defaultInitial);
+  const [scrapQuantities, setScrapQuantities] = useState<Record<ScrapKey, string>>(defaultInitial.scrapQuantities);
+  const [class1, setClass1] = useState(defaultInitial.class1);
+  const [class2, setClass2] = useState(defaultInitial.class2);
+  const [class3, setClass3] = useState(defaultInitial.class3);
+  const [repair, setRepair] = useState(defaultInitial.repair);
+  const [scrapValue, setScrapValue] = useState(defaultInitial.scrapValue);
+  const [startDate, setStartDate] = useState(defaultInitial.startDate);
+  const [endDate, setEndDate] = useState(defaultInitial.endDate);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (!record) {
+      setInitialValues(defaultInitial);
+      setScrapQuantities(defaultInitial.scrapQuantities);
+      setClass1(defaultInitial.class1);
+      setClass2(defaultInitial.class2);
+      setClass3(defaultInitial.class3);
+      setRepair(defaultInitial.repair);
+      setScrapValue(defaultInitial.scrapValue);
+      setStartDate(defaultInitial.startDate);
+      setEndDate(defaultInitial.endDate);
       return;
     }
 
-    setScrapQuantities(prev => ({
-      ...prev,
-      rattling: sanitizeNumberString(record.scrap.rattling ?? ""),
-      external: sanitizeNumberString(record.scrap.external ?? ""),
-      jetting: sanitizeNumberString(record.scrap.jetting ?? ""),
-      mpi: sanitizeNumberString(record.scrap.mpi ?? ""),
-      drift: sanitizeNumberString(record.scrap.drift ?? ""),
-      emi: sanitizeNumberString(record.scrap.emi ?? ""),
-    }));
+    const nextInitial = {
+      scrapQuantities: {
+        rattling: sanitizeNumberString(record.scrap.rattling ?? ""),
+        external: sanitizeNumberString(record.scrap.external ?? ""),
+        jetting: sanitizeNumberString(record.scrap.jetting ?? ""),
+        mpi: sanitizeNumberString(record.scrap.mpi ?? ""),
+        drift: sanitizeNumberString(record.scrap.drift ?? ""),
+        emi: sanitizeNumberString(record.scrap.emi ?? ""),
+      } as Record<ScrapKey, string>,
+      class1: record.class_1 || "",
+      class2: record.class_2 || "",
+      class3: record.class_3 || "",
+      repair: record.repair || "",
+      scrapValue: record.scrapTotal || "",
+      startDate: record.start_date || "",
+      endDate: record.end_date || "",
+    };
 
-    setClass1(record.class_1 || "");
-    setClass2(record.class_2 || "");
-    setClass3(record.class_3 || "");
-    setRepair(record.repair || "");
-    setScrapValue(record.scrapTotal || "");
-    setStartDate(record.start_date || "");
-    setEndDate(record.end_date || "");
-  }, [record]);
+    setInitialValues({ ...nextInitial, scrapQuantities: { ...nextInitial.scrapQuantities } });
+    setScrapQuantities({ ...nextInitial.scrapQuantities });
+    setClass1(nextInitial.class1);
+    setClass2(nextInitial.class2);
+    setClass3(nextInitial.class3);
+    setRepair(nextInitial.repair);
+    setScrapValue(nextInitial.scrapValue);
+    setStartDate(nextInitial.startDate);
+    setEndDate(nextInitial.endDate);
+  }, [defaultInitial, record]);
 
   const handleScrapChange = (key: ScrapKey, value: string) => {
     const sanitized = sanitizeNumberString(value);
@@ -108,6 +143,12 @@ export default function InspectionEdit() {
   };
 
   const handleBack = () => {
+    if (record) {
+      navigate("/edit-records", {
+        state: { client: record.client, wo_no: record.wo_no, batch: record.batch },
+      });
+      return;
+    }
     navigate("/edit-records");
   };
 
@@ -253,8 +294,20 @@ export default function InspectionEdit() {
         description: `${record.batch} marked as Inspection Done.`
       });
 
+      setInitialValues({
+        scrapQuantities: { ...scrapQuantities },
+        class1,
+        class2,
+        class3,
+        repair,
+        scrapValue,
+        startDate,
+        endDate,
+      });
       await refreshDataInBackground(sharePointService);
-      navigate("/edit-records");
+      navigate("/edit-records", {
+        state: { client: record.client, wo_no: record.wo_no, batch: record.batch },
+      });
     } catch (error) {
       console.error("Failed to update inspection data", error);
       toast({
@@ -268,6 +321,55 @@ export default function InspectionEdit() {
   };
 
   const missingSelection = !client || !wo_no || !batch;
+
+  const isDirty = useMemo(() => {
+    if (!record) {
+      return false;
+    }
+
+    const quantitiesChanged = (Object.keys(initialValues.scrapQuantities) as ScrapKey[]).some(
+      key => sanitizeNumberString(scrapQuantities[key] ?? "") !== sanitizeNumberString(initialValues.scrapQuantities[key] ?? "")
+    );
+
+    return (
+      quantitiesChanged ||
+      class1 !== initialValues.class1 ||
+      class2 !== initialValues.class2 ||
+      class3 !== initialValues.class3 ||
+      repair !== initialValues.repair ||
+      sanitizeNumberString(scrapValue) !== sanitizeNumberString(initialValues.scrapValue) ||
+      startDate !== initialValues.startDate ||
+      endDate !== initialValues.endDate
+    );
+  }, [class1, class2, class3, endDate, initialValues, record, repair, scrapQuantities, scrapValue, startDate]);
+
+  useUnsavedChangesWarning(isDirty && !isSaving);
+
+  const discardAndReturn = () => {
+    if (!record) {
+      navigate("/edit-records");
+      return;
+    }
+
+    setScrapQuantities({ ...initialValues.scrapQuantities });
+    setClass1(initialValues.class1);
+    setClass2(initialValues.class2);
+    setClass3(initialValues.class3);
+    setRepair(initialValues.repair);
+    setScrapValue(initialValues.scrapValue);
+    setStartDate(initialValues.startDate);
+    setEndDate(initialValues.endDate);
+    toast({
+      title: "Changes discarded",
+      description: "Inspection data has been restored.",
+    });
+
+    window.setTimeout(() => {
+      navigate("/edit-records", {
+        state: { client: record.client, wo_no: record.wo_no, batch: record.batch },
+      });
+    }, 0);
+  };
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -285,34 +387,34 @@ export default function InspectionEdit() {
         </div>
 
         {missingSelection || !record ? (
-          <Card className="border-2 border-dashed border-blue-200 bg-white">
+          <Card className="border border-dashed border-blue-200 bg-white">
             <CardContent className="p-6 text-center text-sm text-blue-700">
               Batch details not found. Please return to Edit Records and select a batch.
             </CardContent>
           </Card>
         ) : (
           <div className="grid gap-6 lg:grid-cols-[1.1fr,1fr]">
-            <Card className="border-2 border-blue-200 shadow-sm">
+            <Card className="border border-blue-200 shadow-sm">
               <CardHeader className="border-b bg-white/80">
-                <CardTitle className="text-xl font-semibold text-blue-900">Inspection Stages</CardTitle>
+                <CardTitle className="text-lg font-semibold text-blue-900">Inspection Stages</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4 p-6">
-                <div className="grid gap-4 rounded-xl border border-blue-100 bg-blue-50/70 p-4 md:grid-cols-4">
+              <CardContent className="space-y-4 p-5">
+                <div className="grid gap-3 rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-sm md:grid-cols-4">
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-blue-700">Client</p>
-                    <p className="text-base font-semibold text-blue-900">{record.client}</p>
+                    <p className="text-[11px] uppercase tracking-wide text-blue-700">Client</p>
+                    <p className="font-semibold text-blue-900">{record.client}</p>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-blue-700">Work Order</p>
-                    <p className="text-base font-semibold text-blue-900">{record.wo_no}</p>
+                    <p className="text-[11px] uppercase tracking-wide text-blue-700">Work Order</p>
+                    <p className="font-semibold text-blue-900">{record.wo_no}</p>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-blue-700">Batch</p>
-                    <p className="text-base font-semibold text-blue-900">{record.batch}</p>
+                    <p className="text-[11px] uppercase tracking-wide text-blue-700">Batch</p>
+                    <p className="font-semibold text-blue-900">{record.batch}</p>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-blue-700">Quantity</p>
-                    <p className="text-base font-semibold text-blue-900">{record.qty || "0"}</p>
+                    <p className="text-[11px] uppercase tracking-wide text-blue-700">Quantity</p>
+                    <p className="font-semibold text-blue-900">{record.qty || "0"}</p>
                   </div>
                 </div>
 
@@ -359,33 +461,33 @@ export default function InspectionEdit() {
               </CardContent>
             </Card>
 
-            <Card className="border-2 border-emerald-200 shadow-sm">
+            <Card className="border border-emerald-200 shadow-sm">
               <CardHeader className="border-b bg-white/80">
-                <CardTitle className="text-xl font-semibold text-emerald-900">Inspection Data</CardTitle>
+                <CardTitle className="text-lg font-semibold text-emerald-900">Inspection Data</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4 p-6">
+              <CardContent className="space-y-4 p-5">
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="class1">Class 1</Label>
-                    <Input id="class1" value={class1} onChange={event => setClass1(event.target.value)} placeholder="Enter Class 1" />
+                    <Input id="class1" value={class1} onChange={event => setClass1(event.target.value)} placeholder="Enter Class 1" className="h-11" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="class2">Class 2</Label>
-                    <Input id="class2" value={class2} onChange={event => setClass2(event.target.value)} placeholder="Enter Class 2" />
+                    <Input id="class2" value={class2} onChange={event => setClass2(event.target.value)} placeholder="Enter Class 2" className="h-11" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="class3">Class 3</Label>
-                    <Input id="class3" value={class3} onChange={event => setClass3(event.target.value)} placeholder="Enter Class 3" />
+                    <Input id="class3" value={class3} onChange={event => setClass3(event.target.value)} placeholder="Enter Class 3" className="h-11" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="repair">Repair</Label>
-                    <Input id="repair" value={repair} onChange={event => setRepair(event.target.value)} placeholder="Enter Repair" />
+                    <Input id="repair" value={repair} onChange={event => setRepair(event.target.value)} placeholder="Enter Repair" className="h-11" />
                   </div>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
-                  <DateInputField label="Start Date" value={startDate} onChange={setStartDate} />
-                  <DateInputField label="End Date" value={endDate} onChange={setEndDate} />
+                  <DateInputField label="Start Date" value={startDate} onChange={setStartDate} className="h-11" />
+                  <DateInputField label="End Date" value={endDate} onChange={setEndDate} className="h-11" />
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-[2fr,1fr]">
@@ -397,16 +499,25 @@ export default function InspectionEdit() {
                       onChange={event => setScrapValue(sanitizeNumberString(event.target.value))}
                       placeholder="Total scrap"
                       inputMode="numeric"
+                      className="h-11"
                     />
                   </div>
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-sm text-emerald-800">
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 text-sm text-emerald-800">
                     <p className="font-semibold">Computed Scrap</p>
                     <p>{computedScrapTotal}</p>
                   </div>
                 </div>
 
-                <div className="flex justify-end">
-                  <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[160px]">
+                <div className="flex flex-col items-stretch justify-end gap-2 sm:flex-row">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={discardAndReturn}
+                    className="h-11 min-w-[120px]"
+                  >
+                    Cancel
+                  </Button>
+                  <Button onClick={handleUpdate} disabled={isSaving} className="h-11 min-w-[160px]">
                     {isSaving ? "Updating..." : "Update"}
                   </Button>
                 </div>
