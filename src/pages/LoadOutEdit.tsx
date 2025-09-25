@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, CheckCircle2 } from "lucide-react";
 
@@ -44,17 +44,66 @@ export default function LoadOutEdit() {
   const [avr, setAvr] = useState("");
   const [avrDate, setAvrDate] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [initialValues, setInitialValues] = useState({
+    loadOutDate: "",
+    avr: "",
+    avrDate: "",
+  });
+
+  const lastRecordIdRef = useRef<string | null>(null);
+
+  const hasChanges =
+    loadOutDate !== initialValues.loadOutDate || avr !== initialValues.avr || avrDate !== initialValues.avrDate;
 
   useEffect(() => {
     if (!record) {
       return;
     }
-    setLoadOutDate(record.load_out_date || "");
-    setAvr(record.act_no_oper || "");
-    setAvrDate(record.act_date || "");
-  }, [record]);
+
+    if (lastRecordIdRef.current === record.id && hasChanges) {
+      return;
+    }
+
+    const nextValues = {
+      loadOutDate: record.load_out_date || "",
+      avr: record.act_no_oper || "",
+      avrDate: record.act_date || "",
+    };
+
+    setLoadOutDate(nextValues.loadOutDate);
+    setAvr(nextValues.avr);
+    setAvrDate(nextValues.avrDate);
+    setInitialValues(nextValues);
+    lastRecordIdRef.current = record.id;
+  }, [hasChanges, record]);
 
   const handleBack = () => {
+    if (hasChanges) {
+      const shouldDiscard = window.confirm("Discard your unsaved changes and return to Edit Records?");
+      if (!shouldDiscard) {
+        return;
+      }
+    }
+    navigate("/edit-records");
+  };
+
+  const handleCancel = async () => {
+    const shouldDiscard = hasChanges
+      ? window.confirm("Cancel editing and discard load out changes?")
+      : true;
+
+    if (!shouldDiscard) {
+      return;
+    }
+
+    setLoadOutDate(initialValues.loadOutDate);
+    setAvr(initialValues.avr);
+    setAvrDate(initialValues.avrDate);
+
+    if (sharePointService && isConnected) {
+      await refreshDataInBackground(sharePointService);
+    }
+
     navigate("/edit-records");
   };
 
@@ -65,6 +114,15 @@ export default function LoadOutEdit() {
         description: "Return to Edit Records to choose a batch.",
         variant: "destructive"
       });
+      return;
+    }
+
+    if (!hasChanges) {
+      toast({
+        title: "No changes detected",
+        description: "Load out data left unchanged."
+      });
+      navigate("/edit-records");
       return;
     }
 
@@ -107,6 +165,11 @@ export default function LoadOutEdit() {
       });
 
       await refreshDataInBackground(sharePointService);
+      setInitialValues({
+        loadOutDate,
+        avr,
+        avrDate,
+      });
       navigate("/edit-records");
     } catch (error) {
       console.error("Failed to update load out data", error);
@@ -180,6 +243,7 @@ export default function LoadOutEdit() {
                       value={avr}
                       onChange={event => setAvr(event.target.value)}
                       placeholder="Enter AVR"
+                      autoComplete="off"
                     />
                   </div>
                   <DateInputField
@@ -189,9 +253,17 @@ export default function LoadOutEdit() {
                   />
                 </div>
 
-                <div className="flex justify-end">
+                <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={handleCancel}
+                    className="min-w-[140px]"
+                  >
+                    Cancel
+                  </Button>
                   <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[160px]">
-                    {isSaving ? "Updating..." : "Update"}
+                    {isSaving ? "Saving..." : "Save"}
                   </Button>
                 </div>
               </>
