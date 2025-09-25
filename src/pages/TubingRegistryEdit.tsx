@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, Layers } from "lucide-react";
 
@@ -44,18 +44,52 @@ export default function TubingRegistryEdit() {
   const [rack, setRack] = useState("");
   const [arrivalDate, setArrivalDate] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const initialRef = useRef<{ quantity: string; rack: string; arrivalDate: string } | null>(null);
 
   useEffect(() => {
     if (!record) {
       return;
     }
-    setQuantity(record.qty || "");
-    setRack(record.rack || "");
-    setArrivalDate(record.arrival_date || "");
+    const q = record.qty || "";
+    const r = record.rack || "";
+    const a = record.arrival_date || "";
+    setQuantity(q);
+    setRack(r);
+    setArrivalDate(a);
+    initialRef.current = { quantity: q, rack: r, arrivalDate: a };
   }, [record]);
 
+  const isDirty = useMemo(() => {
+    const init = initialRef.current;
+    if (!init) return false;
+    return init.quantity !== quantity || init.rack !== rack || init.arrivalDate !== arrivalDate;
+  }, [quantity, rack, arrivalDate]);
+
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
+
   const handleBack = () => {
-    navigate("/edit-records");
+    if (isDirty && !confirm("Discard your changes? Changes will not be saved.")) {
+      return;
+    }
+    navigate(-1);
+  };
+
+  const handleCancel = () => {
+    if (initialRef.current) {
+      setQuantity(initialRef.current.quantity);
+      setRack(initialRef.current.rack);
+      setArrivalDate(initialRef.current.arrivalDate);
+    }
+    navigate(-1);
   };
 
   const pipeFrom = record?.pipe_from ?? "";
@@ -148,14 +182,14 @@ export default function TubingRegistryEdit() {
           <CardHeader className="border-b bg-white/80">
             <CardTitle className="text-xl font-semibold text-amber-900">Update Tubing Registry</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-6 p-6">
+          <CardContent className="space-y-5 p-5">
             {missingSelection || !record ? (
               <div className="rounded-lg border border-dashed border-amber-300 bg-white p-6 text-center text-sm text-amber-700">
                 Batch details not found. Please return to Edit Records and select a batch.
               </div>
             ) : (
               <>
-                <div className="grid gap-4 rounded-xl border border-amber-100 bg-amber-50/70 p-4 md:grid-cols-4">
+                <div className="grid gap-3 rounded-xl border border-amber-100 bg-amber-50/70 p-3 md:grid-cols-4">
                   <div>
                     <p className="text-xs uppercase tracking-wide text-amber-700">Client</p>
                     <p className="text-base font-semibold text-amber-900">{record.client}</p>
@@ -174,7 +208,7 @@ export default function TubingRegistryEdit() {
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-3 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="quantity">Quantity</Label>
                     <Input
@@ -183,6 +217,7 @@ export default function TubingRegistryEdit() {
                       onChange={event => setQuantity(sanitizeNumberString(event.target.value))}
                       inputMode="numeric"
                       placeholder="Enter quantity"
+                      className="h-9"
                     />
                   </div>
                   <div className="space-y-2">
@@ -191,24 +226,26 @@ export default function TubingRegistryEdit() {
                       value={rack}
                       onChange={event => setRack(event.target.value)}
                       placeholder="Enter rack"
+                      className="h-9"
                     />
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-3">
+                <div className="grid gap-3 md:grid-cols-3">
                   <div className="space-y-2">
                     <Label>Pipe From</Label>
-                    <Input value={pipeFrom || "—"} readOnly className="bg-white" />
+                    <Input value={pipeFrom || "—"} readOnly className="bg-white h-9" />
                   </div>
                   <div className="space-y-2">
                     <Label>Pipe To</Label>
-                    <Input value={computedPipeTo || record?.pipe_to || "—"} readOnly className="bg-white" />
+                    <Input value={computedPipeTo || record?.pipe_to || "—"} readOnly className="bg-white h-9" />
                   </div>
                   <DateInputField label="Arrival Date" value={arrivalDate} onChange={setArrivalDate} />
                 </div>
 
-                <div className="flex justify-end">
-                  <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[160px]">
+                <div className="flex justify-end gap-3">
+                  <Button variant="outline" onClick={handleCancel} className="min-w-[120px]">Cancel</Button>
+                  <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[140px]">
                     {isSaving ? "Updating..." : "Update"}
                   </Button>
                 </div>

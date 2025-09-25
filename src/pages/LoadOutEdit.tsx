@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, CheckCircle2 } from "lucide-react";
 
@@ -45,17 +45,54 @@ export default function LoadOutEdit() {
   const [avrDate, setAvrDate] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
+  // Snapshot of initial values to support Cancel and unsaved-changes guard
+  const initialRef = useRef<{ loadOutDate: string; avr: string; avrDate: string } | null>(null);
+
   useEffect(() => {
     if (!record) {
       return;
     }
-    setLoadOutDate(record.load_out_date || "");
-    setAvr(record.act_no_oper || "");
-    setAvrDate(record.act_date || "");
+    const nextLoadOutDate = record.load_out_date || "";
+    const nextAvr = record.act_no_oper || "";
+    const nextAvrDate = record.act_date || "";
+    setLoadOutDate(nextLoadOutDate);
+    setAvr(nextAvr);
+    setAvrDate(nextAvrDate);
+    initialRef.current = { loadOutDate: nextLoadOutDate, avr: nextAvr, avrDate: nextAvrDate };
   }, [record]);
 
+  const isDirty = useMemo(() => {
+    const init = initialRef.current;
+    if (!init) return false;
+    return init.loadOutDate !== loadOutDate || init.avr !== avr || init.avrDate !== avrDate;
+  }, [loadOutDate, avr, avrDate]);
+
+  // Warn user if trying to close/refresh with unsaved changes
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
+
   const handleBack = () => {
-    navigate("/edit-records");
+    if (isDirty && !confirm("Discard your changes? Changes will not be saved.")) {
+      return;
+    }
+    navigate(-1);
+  };
+
+  const handleCancel = () => {
+    if (initialRef.current) {
+      setLoadOutDate(initialRef.current.loadOutDate);
+      setAvr(initialRef.current.avr);
+      setAvrDate(initialRef.current.avrDate);
+    }
+    navigate(-1);
   };
 
   const handleUpdate = async () => {
@@ -141,7 +178,7 @@ export default function LoadOutEdit() {
           <CardHeader className="border-b bg-white/80">
             <CardTitle className="text-xl font-semibold text-emerald-900">Finalize Load Out</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-6 p-6">
+          <CardContent className="space-y-5 p-5">
             {missingSelection || !record ? (
               <div className="rounded-lg border border-dashed border-emerald-300 bg-white p-6 text-center text-sm text-emerald-700">
                 Batch details not found. Please return to Edit Records and select a batch.
@@ -167,7 +204,7 @@ export default function LoadOutEdit() {
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-3">
+                <div className="grid gap-3 md:grid-cols-3">
                   <DateInputField
                     label="Load Out Date"
                     value={loadOutDate}
@@ -180,6 +217,7 @@ export default function LoadOutEdit() {
                       value={avr}
                       onChange={event => setAvr(event.target.value)}
                       placeholder="Enter AVR"
+                      className="h-9"
                     />
                   </div>
                   <DateInputField
@@ -189,8 +227,9 @@ export default function LoadOutEdit() {
                   />
                 </div>
 
-                <div className="flex justify-end">
-                  <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[160px]">
+                <div className="flex justify-end gap-3">
+                  <Button variant="outline" onClick={handleCancel} className="min-w-[120px]">Cancel</Button>
+                  <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[140px]">
                     {isSaving ? "Updating..." : "Update"}
                   </Button>
                 </div>
