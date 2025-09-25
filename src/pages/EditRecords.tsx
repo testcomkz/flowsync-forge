@@ -107,9 +107,11 @@ export default function EditRecords() {
       return STATUS_OPTIONS;
     }
 
+    // Only allow navigating to earlier stages (strictly lower rank),
+    // Edit Records must not advance or re-open the same stage.
     return STATUS_OPTIONS.filter(option => {
       const optionRank = getStatusRank(option.value);
-      return optionRank !== -1 && optionRank <= currentRank;
+      return optionRank !== -1 && optionRank < currentRank;
     });
   }, [selectedRecord]);
 
@@ -141,7 +143,7 @@ export default function EditRecords() {
     if (!selectedRecord) {
       toast({
         title: "Select a batch",
-        description: "Choose Client, Work Order and Batch before saving.",
+        description: "Choose Client, Work Order and Batch before continuing.",
         variant: "destructive"
       });
       return;
@@ -149,17 +151,8 @@ export default function EditRecords() {
 
     if (!selectedStatus) {
       toast({
-        title: "Select status",
-        description: "Choose a new status before continuing.",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    if (!sharePointService || !isConnected) {
-      toast({
-        title: "SharePoint not connected",
-        description: "Connect to SharePoint before updating records.",
+        title: "Select action",
+        description: "Choose an edit action before continuing.",
         variant: "destructive"
       });
       return;
@@ -168,82 +161,29 @@ export default function EditRecords() {
     const statusConfig = STATUS_OPTIONS.find(option => option.value === selectedStatus);
     if (!statusConfig) {
       toast({
-        title: "Unsupported status",
-        description: "The selected status is not available for update.",
+        title: "Unsupported action",
+        description: "The selected action is not available.",
         variant: "destructive"
       });
       return;
     }
 
-    const isAllowed = availableStatusOptions.some(option => option.value === statusConfig.value);
-    if (!isAllowed) {
-      toast({
-        title: "Invalid status transition",
-        description: "You can only move the batch to an earlier stage.",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      const success = await sharePointService.updateTubingRecord({
-        originalClient: selectedRecord.originalClient,
-        originalWo: selectedRecord.originalWo,
-        originalBatch: selectedRecord.originalBatch,
+    // Navigate to the appropriate edit page without changing status
+    navigate(statusConfig.redirect, {
+      state: {
         client: selectedRecord.client,
         wo_no: selectedRecord.wo_no,
-        batch: selectedRecord.batch,
-        diameter: selectedRecord.diameter,
-        qty: selectedRecord.qty,
-        pipe_from: selectedRecord.pipe_from,
-        pipe_to: selectedRecord.pipe_to,
-        rack: selectedRecord.rack,
-        arrival_date: selectedRecord.arrival_date,
-        status: statusConfig.excelStatus
-      });
-
-      if (!success) {
-        toast({
-          title: "Update failed",
-          description: "Unable to update batch status. Please try again.",
-          variant: "destructive"
-        });
-        return;
+        batch: selectedRecord.batch
       }
-
-      toast({
-        title: "Status updated",
-        description: `${selectedRecord.batch} is now ${statusConfig.label}.`
-      });
-
-      await refreshDataInBackground(sharePointService);
-
-      navigate(statusConfig.redirect, {
-        state: {
-          client: selectedRecord.client,
-          wo_no: selectedRecord.wo_no,
-          batch: selectedRecord.batch
-        }
-      });
-    } catch (error) {
-      console.error("Failed to update tubing status", error);
-      toast({
-        title: "Update failed",
-        description: "Unexpected error occurred while updating the batch.",
-        variant: "destructive"
-      });
-    } finally {
-      setIsSaving(false);
-    }
+    });
   };
 
   return (
     <div className="min-h-screen bg-slate-50">
       <Header />
-      <main className="container mx-auto px-4 py-6">
+      <main className="container mx-auto px-4 py-5">
         <div className="mb-4 flex items-center justify-between">
-          <Button variant="ghost" onClick={() => navigate(-1)} className="flex items-center gap-2 text-slate-600">
+          <Button variant="ghost" onClick={() => navigate("/")} className="flex items-center gap-2 text-slate-600">
             <ArrowLeft className="h-4 w-4" />
             Back
           </Button>
@@ -257,8 +197,8 @@ export default function EditRecords() {
           <CardHeader className="border-b bg-white/80">
             <CardTitle className="text-xl font-semibold text-slate-900">Batch Selection</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-6 p-6">
-            <div className="grid gap-4 md:grid-cols-3">
+          <CardContent className="grid gap-5 p-5">
+            <div className="grid gap-3 md:grid-cols-3">
               <div className="space-y-2">
                 <Label>Client</Label>
                 <Select value={selectedClient} onValueChange={setSelectedClient}>
@@ -317,24 +257,24 @@ export default function EditRecords() {
             </div>
 
             {selectedRecord ? (
-              <div className="grid gap-4 rounded-xl border border-slate-200 bg-slate-50/80 p-4 md:grid-cols-2">
+              <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 md:grid-cols-2">
                 <div className="space-y-1 text-sm">
                   <p className="text-slate-500">Current Status</p>
                   <p className="text-base font-semibold text-slate-900">{selectedRecord.status || "—"}</p>
                 </div>
                 <div className="space-y-2">
                   <Label>Quantity</Label>
-                  <Input value={selectedRecord.qty || "0"} readOnly className="bg-white" />
+                  <Input value={selectedRecord.qty || "0"} readOnly className="bg-white h-9" />
                 </div>
                 <div className="space-y-2 md:col-span-2">
-                  <Label>New Status</Label>
+                  <Label>Edit Action</Label>
                   <Select
                     value={selectedStatus}
                     onValueChange={value => setSelectedStatus(value as StatusOption["value"])}
                     disabled={availableStatusOptions.length === 0}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select new status" />
+                      <SelectValue placeholder="Select edit action" />
                     </SelectTrigger>
                     <SelectContent>
                       {availableStatusOptions.map(option => (
@@ -345,7 +285,7 @@ export default function EditRecords() {
                     </SelectContent>
                   </Select>
                   {availableStatusOptions.length === 0 ? (
-                    <p className="pt-1 text-sm text-muted-foreground">This batch is already at the earliest stage.</p>
+                    <p className="pt-1 text-sm text-muted-foreground">No edit actions available for this batch.</p>
                   ) : null}
                 </div>
               </div>
@@ -356,8 +296,8 @@ export default function EditRecords() {
             )}
 
             <div className="flex justify-end">
-              <Button onClick={handleSave} disabled={!selectedRecord || !selectedStatus || isSaving} className="min-w-[160px]">
-                {isSaving ? "Saving..." : "Save"}
+              <Button onClick={handleSave} disabled={!selectedRecord || !selectedStatus} className="min-w-[140px]">
+                Continue to Edit
               </Button>
             </div>
           </CardContent>

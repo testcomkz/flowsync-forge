@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, ClipboardCheck } from "lucide-react";
 
@@ -61,6 +61,15 @@ export default function InspectionEdit() {
     [records, client, wo_no, batch]
   );
 
+  const [baseStageQuantities, setBaseStageQuantities] = useState<Record<StageKey, string>>({
+    rattling: "",
+    external: "",
+    hydro: "",
+    mpi: "",
+    drift: "",
+    emi: "",
+    marking: ""
+  });
   const [scrapQuantities, setScrapQuantities] = useState<Record<ScrapKey, string>>({
     rattling: "",
     external: "",
@@ -77,21 +86,50 @@ export default function InspectionEdit() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const lastRecordIdRef = useRef<string | null>(null);
+  const initialRef = useRef<{
+    base: Record<StageKey, string>;
+    scrap: Record<ScrapKey, string>;
+    class1: string;
+    class2: string;
+    class3: string;
+    repair: string;
+    startDate: string;
+    endDate: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!record) {
+      lastRecordIdRef.current = null;
       return;
     }
 
-    setScrapQuantities(prev => ({
-      ...prev,
-      rattling: sanitizeNumberString(record.scrap.rattling ?? ""),
-      external: sanitizeNumberString(record.scrap.external ?? ""),
-      jetting: sanitizeNumberString(record.scrap.jetting ?? ""),
-      mpi: sanitizeNumberString(record.scrap.mpi ?? ""),
-      drift: sanitizeNumberString(record.scrap.drift ?? ""),
-      emi: sanitizeNumberString(record.scrap.emi ?? ""),
-    }));
+    if (lastRecordIdRef.current === record.id) {
+      return;
+    }
+
+    lastRecordIdRef.current = record.id;
+
+    const fallbackQty = record.qty || "";
+
+    setBaseStageQuantities({
+      rattling: record.quantities.rattling ?? fallbackQty,
+      external: record.quantities.external ?? fallbackQty,
+      hydro: record.quantities.hydro ?? fallbackQty,
+      mpi: record.quantities.mpi ?? fallbackQty,
+      drift: record.quantities.drift ?? fallbackQty,
+      emi: record.quantities.emi ?? fallbackQty,
+      marking: record.quantities.marking ?? fallbackQty
+    });
+
+    setScrapQuantities({
+      rattling: record.scrap.rattling ?? "",
+      external: record.scrap.external ?? "",
+      jetting: record.scrap.jetting ?? "",
+      mpi: record.scrap.mpi ?? "",
+      drift: record.scrap.drift ?? "",
+      emi: record.scrap.emi ?? ""
+    });
 
     setClass1(record.class_1 || "");
     setClass2(record.class_2 || "");
@@ -100,6 +138,32 @@ export default function InspectionEdit() {
     setScrapValue(record.scrapTotal || "");
     setStartDate(record.start_date || "");
     setEndDate(record.end_date || "");
+
+    initialRef.current = {
+      base: {
+        rattling: record.quantities.rattling ?? fallbackQty,
+        external: record.quantities.external ?? fallbackQty,
+        hydro: record.quantities.hydro ?? fallbackQty,
+        mpi: record.quantities.mpi ?? fallbackQty,
+        drift: record.quantities.drift ?? fallbackQty,
+        emi: record.quantities.emi ?? fallbackQty,
+        marking: record.quantities.marking ?? fallbackQty
+      },
+      scrap: {
+        rattling: record.scrap.rattling ?? "",
+        external: record.scrap.external ?? "",
+        jetting: record.scrap.jetting ?? "",
+        mpi: record.scrap.mpi ?? "",
+        drift: record.scrap.drift ?? "",
+        emi: record.scrap.emi ?? ""
+      },
+      class1: record.class_1 || "",
+      class2: record.class_2 || "",
+      class3: record.class_3 || "",
+      repair: record.repair || "",
+      startDate: record.start_date || "",
+      endDate: record.end_date || ""
+    };
   }, [record]);
 
   const handleScrapChange = (key: ScrapKey, value: string) => {
@@ -107,8 +171,61 @@ export default function InspectionEdit() {
     setScrapQuantities(prev => ({ ...prev, [key]: sanitized }));
   };
 
+  const isDirty = useMemo(() => {
+    if (!initialRef.current) return false;
+    const init = initialRef.current;
+    const baseChanged = Object.keys(baseStageQuantities).some(
+      key => (baseStageQuantities as any)[key] !== (init.base as any)[key]
+    );
+    const scrapChanged = Object.keys(scrapQuantities).some(
+      key => (scrapQuantities as any)[key] !== (init.scrap as any)[key]
+    );
+    return (
+      baseChanged ||
+      scrapChanged ||
+      class1 !== init.class1 ||
+      class2 !== init.class2 ||
+      class3 !== init.class3 ||
+      repair !== init.repair ||
+      startDate !== init.startDate ||
+      endDate !== init.endDate
+    );
+  }, [baseStageQuantities, scrapQuantities, class1, class2, class3, repair, startDate, endDate]);
+
+  // warn on closing tab/browser with unsaved changes
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
+
   const handleBack = () => {
+    if (isDirty && !confirm("Discard your changes? Changes will not be saved.")) {
+      return;
+    }
     navigate("/edit-records");
+  };
+
+  const handleCancel = () => {
+    if (!initialRef.current) {
+      navigate("/");
+      return;
+    }
+    const init = initialRef.current;
+    setBaseStageQuantities(init.base);
+    setScrapQuantities(init.scrap);
+    setClass1(init.class1);
+    setClass2(init.class2);
+    setClass3(init.class3);
+    setRepair(init.repair);
+    setStartDate(init.startDate);
+    setEndDate(init.endDate);
+    navigate("/");
   };
 
   const computedScrapTotal = useMemo(
@@ -120,40 +237,15 @@ export default function InspectionEdit() {
     [scrapQuantities]
   );
 
-  const computedStageQuantities = useMemo(() => {
-    if (!record) {
-      return {
-        rattling: "",
-        external: "",
-        hydro: "",
-        mpi: "",
-        drift: "",
-        emi: "",
-        marking: "",
-      } satisfies Record<StageKey, string>;
+  useEffect(() => {
+    const hasScrapEntries = (Object.values(scrapQuantities) as string[]).some(value => sanitizeNumberString(value) !== "");
+    const computedString = hasScrapEntries ? computedScrapTotal.toString() : "";
+    if (scrapValue !== computedString) {
+      setScrapValue(computedString);
     }
+  }, [computedScrapTotal, scrapQuantities, scrapValue]);
 
-    const baseCandidates = [
-      record.qty,
-      record.quantities.rattling,
-      record.quantities.external,
-      record.quantities.hydro,
-      record.quantities.mpi,
-      record.quantities.drift,
-      record.quantities.emi,
-      record.quantities.marking,
-    ];
-
-    const initialValue = baseCandidates
-      .map(value => sanitizeNumberString(value ?? ""))
-      .find(value => value !== "");
-
-    const hasInitialValue = Boolean(initialValue);
-    let running = hasInitialValue ? Number(initialValue) : 0;
-    if (!Number.isFinite(running)) {
-      running = 0;
-    }
-
+  const calculatedStageQuantities = useMemo(() => {
     const result: Record<StageKey, string> = {
       rattling: "",
       external: "",
@@ -161,32 +253,31 @@ export default function InspectionEdit() {
       mpi: "",
       drift: "",
       emi: "",
-      marking: "",
+      marking: ""
     };
 
-    STAGE_META.forEach(stage => {
-      result[stage.key] = hasInitialValue ? String(Math.max(0, Math.trunc(running))) : "";
+    for (const stage of STAGE_META) {
+      const baseRaw = baseStageQuantities[stage.key] ?? "";
+      const baseNumeric = Number(sanitizeNumberString(baseRaw));
+      const hasValidBase = baseRaw !== "" && Number.isFinite(baseNumeric);
 
       if (stage.scrapKey) {
-        const sanitizedScrap = sanitizeNumberString(scrapQuantities[stage.scrapKey] ?? "");
-        const scrapValue = sanitizedScrap ? Number(sanitizedScrap) : 0;
-        if (Number.isFinite(scrapValue)) {
-          running = Math.max(0, running - scrapValue);
+        const scrapRaw = scrapQuantities[stage.scrapKey] ?? "";
+        const scrapNumeric = Number(sanitizeNumberString(scrapRaw));
+        if (hasValidBase) {
+          const computed = Math.max(0, baseNumeric - (Number.isFinite(scrapNumeric) ? scrapNumeric : 0));
+          result[stage.key] = computed.toString();
+        } else {
+          result[stage.key] = baseRaw;
         }
+      } else {
+        result[stage.key] = baseRaw;
       }
-    });
+    }
 
     return result;
-  }, [record, scrapQuantities]);
+  }, [baseStageQuantities, scrapQuantities]);
 
-  const toNumericValue = (value: string) => {
-    const sanitized = sanitizeNumberString(value);
-    if (!sanitized) {
-      return 0;
-    }
-    const numeric = Number(sanitized);
-    return Number.isFinite(numeric) ? numeric : 0;
-  };
 
   const handleUpdate = async () => {
     if (!record) {
@@ -217,23 +308,15 @@ export default function InspectionEdit() {
         class_2: class2,
         class_3: class3,
         repair,
-        scrap: scrapValue,
         start_date: startDate,
         end_date: endDate,
-        rattling_qty: toNumericValue(computedStageQuantities.rattling ?? ""),
-        external_qty: toNumericValue(computedStageQuantities.external ?? ""),
-        hydro_qty: toNumericValue(computedStageQuantities.hydro ?? ""),
-        mpi_qty: toNumericValue(computedStageQuantities.mpi ?? ""),
-        drift_qty: toNumericValue(computedStageQuantities.drift ?? ""),
-        emi_qty: toNumericValue(computedStageQuantities.emi ?? ""),
-        marking_qty: toNumericValue(computedStageQuantities.marking ?? ""),
-        status: "Inspection Done",
-        rattling_scrap_qty: toNumericValue(scrapQuantities.rattling ?? ""),
-        external_scrap_qty: toNumericValue(scrapQuantities.external ?? ""),
-        jetting_scrap_qty: toNumericValue(scrapQuantities.jetting ?? ""),
-        mpi_scrap_qty: toNumericValue(scrapQuantities.mpi ?? ""),
-        drift_scrap_qty: toNumericValue(scrapQuantities.drift ?? ""),
-        emi_scrap_qty: toNumericValue(scrapQuantities.emi ?? ""),
+        rattling_qty: Number(calculatedStageQuantities.rattling || 0),
+        external_qty: Number(calculatedStageQuantities.external || 0),
+        hydro_qty: Number(calculatedStageQuantities.hydro || 0),
+        mpi_qty: Number(calculatedStageQuantities.mpi || 0),
+        drift_qty: Number(calculatedStageQuantities.drift || 0),
+        emi_qty: Number(calculatedStageQuantities.emi || 0),
+        marking_qty: Number(calculatedStageQuantities.marking || 0),
         originalClient: record.originalClient,
         originalWo: record.originalWo,
         originalBatch: record.originalBatch
@@ -248,11 +331,11 @@ export default function InspectionEdit() {
         return;
       }
 
-      toast({
-        title: "Inspection updated",
-        description: `${record.batch} marked as Inspection Done.`
-      });
+      toast({ title: "Changes saved", description: `${record.batch} updated successfully.` });
 
+      import("@/lib/safe-storage").then(({ safeLocalStorage }) => {
+        try { safeLocalStorage.removeItem("sharepoint_last_refresh"); } catch {}
+      });
       await refreshDataInBackground(sharePointService);
       navigate("/edit-records");
     } catch (error) {
@@ -291,13 +374,13 @@ export default function InspectionEdit() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-6 lg:grid-cols-[1.1fr,1fr]">
+          <div className="grid gap-5 lg:grid-cols-[1.1fr,1fr]">
             <Card className="border-2 border-blue-200 shadow-sm">
               <CardHeader className="border-b bg-white/80">
                 <CardTitle className="text-xl font-semibold text-blue-900">Inspection Stages</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4 p-6">
-                <div className="grid gap-4 rounded-xl border border-blue-100 bg-blue-50/70 p-4 md:grid-cols-4">
+              <CardContent className="space-y-4 p-5">
+                <div className="grid gap-3 rounded-xl border border-blue-100 bg-blue-50/70 p-3 md:grid-cols-4">
                   <div>
                     <p className="text-xs uppercase tracking-wide text-blue-700">Client</p>
                     <p className="text-base font-semibold text-blue-900">{record.client}</p>
@@ -331,7 +414,7 @@ export default function InspectionEdit() {
                           <TableCell className="p-3 text-sm font-medium text-slate-700">{stage.label}</TableCell>
                           <TableCell className="p-3">
                             <Input
-                              value={computedStageQuantities[stage.key] ?? ""}
+                              value={calculatedStageQuantities[stage.key] ?? ""}
                               readOnly
                               inputMode="numeric"
                               placeholder="0"
@@ -363,51 +446,53 @@ export default function InspectionEdit() {
               <CardHeader className="border-b bg-white/80">
                 <CardTitle className="text-xl font-semibold text-emerald-900">Inspection Data</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4 p-6">
-                <div className="grid gap-4 md:grid-cols-2">
+              <CardContent className="space-y-4 p-5">
+                <div className="grid gap-3 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="class1">Class 1</Label>
-                    <Input id="class1" value={class1} onChange={event => setClass1(event.target.value)} placeholder="Enter Class 1" />
+                    <Input id="class1" value={class1} onChange={event => setClass1(event.target.value)} placeholder="Enter Class 1" className="h-9" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="class2">Class 2</Label>
-                    <Input id="class2" value={class2} onChange={event => setClass2(event.target.value)} placeholder="Enter Class 2" />
+                    <Input id="class2" value={class2} onChange={event => setClass2(event.target.value)} placeholder="Enter Class 2" className="h-9" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="class3">Class 3</Label>
-                    <Input id="class3" value={class3} onChange={event => setClass3(event.target.value)} placeholder="Enter Class 3" />
+                    <Input id="class3" value={class3} onChange={event => setClass3(event.target.value)} placeholder="Enter Class 3" className="h-9" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="repair">Repair</Label>
-                    <Input id="repair" value={repair} onChange={event => setRepair(event.target.value)} placeholder="Enter Repair" />
+                    <Input id="repair" value={repair} onChange={event => setRepair(event.target.value)} placeholder="Enter Repair" className="h-9" />
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-3 md:grid-cols-2">
                   <DateInputField label="Start Date" value={startDate} onChange={setStartDate} />
                   <DateInputField label="End Date" value={endDate} onChange={setEndDate} />
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-[2fr,1fr]">
+                <div className="grid gap-3 md:grid-cols-[2fr,1fr]">
                   <div className="space-y-2">
                     <Label htmlFor="scrap">Scrap</Label>
                     <Input
                       id="scrap"
                       value={scrapValue}
-                      onChange={event => setScrapValue(sanitizeNumberString(event.target.value))}
-                      placeholder="Total scrap"
+                      readOnly
+                      placeholder="Computed automatically"
                       inputMode="numeric"
+                      className="h-9 bg-slate-100"
                     />
                   </div>
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-sm text-emerald-800">
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-2 text-sm text-emerald-800">
                     <p className="font-semibold">Computed Scrap</p>
                     <p>{computedScrapTotal}</p>
                   </div>
                 </div>
 
-                <div className="flex justify-end">
-                  <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[160px]">
-                    {isSaving ? "Updating..." : "Update"}
+                <div className="flex justify-end gap-3">
+                  <Button variant="destructive" onClick={handleCancel} className="min-w-[120px]">Cancel</Button>
+                  <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[140px]">
+                    {isSaving ? "Saving..." : "Save"}
                   </Button>
                 </div>
               </CardContent>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, CheckCircle2 } from "lucide-react";
 
@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DateInputField } from "@/components/ui/date-input";
+import { safeLocalStorage } from "@/lib/safe-storage";
 import { useToast } from "@/hooks/use-toast";
 import { useSharePoint } from "@/contexts/SharePointContext";
 import { useSharePointInstantData } from "@/hooks/useInstantData";
@@ -44,18 +45,62 @@ export default function LoadOutEdit() {
   const [avr, setAvr] = useState("");
   const [avrDate, setAvrDate] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const lastRecordIdRef = useRef<string | null>(null);
+
+  // Snapshot of initial values to support Cancel and unsaved-changes guard
+  const initialRef = useRef<{ loadOutDate: string; avr: string; avrDate: string } | null>(null);
 
   useEffect(() => {
     if (!record) {
+      lastRecordIdRef.current = null;
       return;
     }
-    setLoadOutDate(record.load_out_date || "");
-    setAvr(record.act_no_oper || "");
-    setAvrDate(record.act_date || "");
+    // Initialize form values only when the target record changes
+    if (lastRecordIdRef.current === record.id) {
+      return;
+    }
+    lastRecordIdRef.current = record.id;
+    const nextLoadOutDate = record.load_out_date || "";
+    const nextAvr = record.act_no_oper || "";
+    const nextAvrDate = record.act_date || "";
+    setLoadOutDate(nextLoadOutDate);
+    setAvr(nextAvr);
+    setAvrDate(nextAvrDate);
+    initialRef.current = { loadOutDate: nextLoadOutDate, avr: nextAvr, avrDate: nextAvrDate };
   }, [record]);
 
+  const isDirty = useMemo(() => {
+    const init = initialRef.current;
+    if (!init) return false;
+    return init.loadOutDate !== loadOutDate || init.avr !== avr || init.avrDate !== avrDate;
+  }, [loadOutDate, avr, avrDate]);
+
+  // Warn user if trying to close/refresh with unsaved changes
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
+
   const handleBack = () => {
+    if (isDirty && !confirm("Discard your changes? Changes will not be saved.")) {
+      return;
+    }
     navigate("/edit-records");
+  };
+
+  const handleCancel = () => {
+    if (initialRef.current) {
+      setLoadOutDate(initialRef.current.loadOutDate);
+      setAvr(initialRef.current.avr);
+      setAvrDate(initialRef.current.avrDate);
+    }
+    navigate("/");
   };
 
   const handleUpdate = async () => {
@@ -106,6 +151,7 @@ export default function LoadOutEdit() {
         description: `${record.batch} marked as Completed.`
       });
 
+      safeLocalStorage.removeItem("sharepoint_last_refresh");
       await refreshDataInBackground(sharePointService);
       navigate("/edit-records");
     } catch (error) {
@@ -141,7 +187,7 @@ export default function LoadOutEdit() {
           <CardHeader className="border-b bg-white/80">
             <CardTitle className="text-xl font-semibold text-emerald-900">Finalize Load Out</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-6 p-6">
+          <CardContent className="space-y-5 p-5">
             {missingSelection || !record ? (
               <div className="rounded-lg border border-dashed border-emerald-300 bg-white p-6 text-center text-sm text-emerald-700">
                 Batch details not found. Please return to Edit Records and select a batch.
@@ -167,30 +213,30 @@ export default function LoadOutEdit() {
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-3">
-                  <DateInputField
-                    label="Load Out Date"
-                    value={loadOutDate}
-                    onChange={setLoadOutDate}
-                  />
-                  <div className="space-y-2">
+                <div className="flex gap-3">
+                  <div className="flex-1 space-y-2">
+                    <Label>Load Out Date</Label>
+                    <DateInputField value={loadOutDate} onChange={setLoadOutDate} className="h-9" />
+                  </div>
+                  <div className="flex-1 space-y-2">
                     <Label htmlFor="avr">AVR</Label>
                     <Input
                       id="avr"
                       value={avr}
                       onChange={event => setAvr(event.target.value)}
                       placeholder="Enter AVR"
+                      className="h-9"
                     />
                   </div>
-                  <DateInputField
-                    label="AVR Date"
-                    value={avrDate}
-                    onChange={setAvrDate}
-                  />
+                  <div className="flex-1 space-y-2">
+                    <Label>AVR Date</Label>
+                    <DateInputField value={avrDate} onChange={setAvrDate} className="h-9" />
+                  </div>
                 </div>
 
-                <div className="flex justify-end">
-                  <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[160px]">
+                <div className="flex justify-end gap-3">
+                  <Button variant="destructive" onClick={handleCancel} className="min-w-[120px]">Cancel</Button>
+                  <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[140px]">
                     {isSaving ? "Updating..." : "Update"}
                   </Button>
                 </div>

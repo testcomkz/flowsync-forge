@@ -125,7 +125,7 @@ export function DateInputField({
         aria-label={ariaLabel}
         disabled={disabled}
         className={cn(
-          "h-11 w-full rounded-md border border-gray-300 bg-white px-3 text-gray-900 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-blue-500 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500 disabled:border-gray-300",
+          "h-9 w-full rounded-md border border-gray-300 bg-white px-3 text-gray-900 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-blue-500 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500 disabled:border-gray-300",
           className,
         )}
       />
