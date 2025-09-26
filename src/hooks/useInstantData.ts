@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { safeLocalStorage } from '@/lib/safe-storage';
+import type { ClientRecord } from '@/services/sharePointService';
 
 // Ultra-fast data hook for millisecond loading with automatic sync
 export const useInstantData = <T>(key: string, defaultValue: T) => {
@@ -44,6 +45,7 @@ export const useInstantData = <T>(key: string, defaultValue: T) => {
 // Pre-load all SharePoint data instantly with persistent sync
 export const useSharePointInstantData = () => {
   const [clients, setClients] = useInstantData<string[]>('sharepoint_cached_clients', []);
+  const [clientRecords, setClientRecords] = useInstantData<ClientRecord[]>('sharepoint_cached_client_records', []);
   const [workOrders, setWorkOrders] = useInstantData<any[]>('sharepoint_cached_workorders', []);
   const [tubingData, setTubingData] = useInstantData<any[]>('sharepoint_cached_tubing', []);
   
@@ -52,6 +54,7 @@ export const useSharePointInstantData = () => {
     const syncData = () => {
       try {
         const cachedClients = safeLocalStorage.getItem("sharepoint_cached_clients");
+        const cachedClientRecords = safeLocalStorage.getItem("sharepoint_cached_client_records");
         const cachedWorkOrders = safeLocalStorage.getItem("sharepoint_cached_workorders");
         const cachedTubing = safeLocalStorage.getItem("sharepoint_cached_tubing");
         
@@ -60,6 +63,17 @@ export const useSharePointInstantData = () => {
           if (clientsData.length > 0) setClients(clientsData);
         }
         
+        if (cachedClientRecords) {
+          try {
+            const records = JSON.parse(cachedClientRecords);
+            if (Array.isArray(records) && records.length > 0) {
+              setClientRecords(records);
+            }
+          } catch (error) {
+            console.warn('Failed to sync client records from cache:', error);
+          }
+        }
+
         if (cachedWorkOrders) {
           const workOrdersData = JSON.parse(cachedWorkOrders);
           if (workOrdersData.length > 0) setWorkOrders(workOrdersData);
@@ -77,5 +91,5 @@ export const useSharePointInstantData = () => {
     syncData();
   }, [setClients, setWorkOrders, setTubingData]);
   
-  return { clients, workOrders, tubingData };
+  return { clients, clientRecords, workOrders, tubingData };
 };

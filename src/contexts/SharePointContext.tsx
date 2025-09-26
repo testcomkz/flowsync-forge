@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { SharePointService } from '@/services/sharePointService';
+import { SharePointService, ClientRecord } from '@/services/sharePointService';
 import { authService } from '@/services/authService';
 import { safeLocalStorage } from '@/lib/safe-storage';
 
@@ -13,6 +13,7 @@ interface SharePointContextType {
   error: string | null;
   // Кешированные данные
   cachedClients: string[];
+  cachedClientRecords: ClientRecord[];
   cachedWorkOrders: any[];
   isDataLoading: boolean;
   refreshData: () => Promise<void>;
@@ -53,6 +54,18 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
     }
     return data;
   });
+  const [cachedClientRecords, setCachedClientRecords] = useState<ClientRecord[]>(() => {
+    const data = safeLocalStorage.getJSON<ClientRecord[]>("sharepoint_cached_client_records", []);
+    if (Array.isArray(data) && data.length > 0) {
+      console.log("🚀 SharePointContext initialized with cached client records:", data.length);
+      return data;
+    }
+    if (!Array.isArray(data)) {
+      console.warn("Cached client records data is not an array");
+      return [];
+    }
+    return data;
+  });
   const [cachedWorkOrders, setCachedWorkOrders] = useState<any[]>(() => {
     const data = safeLocalStorage.getJSON<any[]>("sharepoint_cached_workorders", []);
     if (Array.isArray(data) && data.length > 0) {
@@ -73,6 +86,8 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
 
     if (key === "sharepoint_cached_clients") {
       setCachedClients(arrayData);
+    } else if (key === "sharepoint_cached_client_records") {
+      setCachedClientRecords(arrayData as ClientRecord[]);
     } else if (key === "sharepoint_cached_workorders") {
       setCachedWorkOrders(arrayData);
     }
@@ -168,6 +183,7 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
   const loadCachedData = () => {
     try {
       const cachedClientsData = safeLocalStorage.getItem("sharepoint_cached_clients");
+      const cachedClientRecordsData = safeLocalStorage.getItem("sharepoint_cached_client_records");
       const cachedWorkOrdersData = safeLocalStorage.getItem("sharepoint_cached_workorders");
       
       if (cachedClientsData) {
@@ -188,6 +204,26 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
         }
       } else {
         setCachedClients([]);
+      }
+
+      if (cachedClientRecordsData) {
+        try {
+          const clientRecords = JSON.parse(cachedClientRecordsData);
+          if (Array.isArray(clientRecords)) {
+            setCachedClientRecords(clientRecords);
+            if (clientRecords.length > 0) {
+              console.log('📦 Context loaded cached client records:', clientRecords.length);
+            }
+          } else {
+            console.warn('Cached client records data is not an array');
+            setCachedClientRecords([]);
+          }
+        } catch (parseError) {
+          console.error('Error parsing cached client records data:', parseError);
+          setCachedClientRecords([]);
+        }
+      } else {
+        setCachedClientRecords([]);
       }
 
       if (cachedWorkOrdersData) {
@@ -243,6 +279,17 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
         console.log('✅ Successfully cached', clients.length, 'clients');
       } else {
         console.warn('⚠️ No clients received from SharePoint API');
+      }
+
+      try {
+        const clientRecords = await service.getClientRecordsFromExcel();
+        if (clientRecords && clientRecords.length > 0) {
+          setCachedClientRecords(clientRecords);
+          saveToCache('sharepoint_cached_client_records', clientRecords);
+          console.log('✅ Cached detailed client records:', clientRecords.length);
+        }
+      } catch (error) {
+        console.warn('Failed to load detailed client records:', error);
       }
       
       // Загружаем полные данные work orders из Excel листа 'wo'
@@ -352,16 +399,19 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
     setIsConnected(false);
     setError(null);
     setCachedClients([]);
+    setCachedClientRecords([]);
     setCachedWorkOrders([]);
-    
+
     // Очищаем сохраненное состояние SharePoint (но НЕ MSAL токены)
     [
       "sharepoint_connected",
       "sharepoint_connection_time",
       "sharepoint_cached_clients",
+      "sharepoint_cached_client_records",
       "sharepoint_cached_workorders",
       "sharepoint_cached_tubing",
       "sharepoint_clients_timestamp",
+      "sharepoint_cached_client_records_timestamp",
       "sharepoint_workorders_timestamp",
       "sharepoint_cached_tubing_timestamp",
       "sharepoint_last_refresh",
@@ -379,6 +429,7 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
     disconnect,
     error,
     cachedClients,
+    cachedClientRecords,
     cachedWorkOrders,
     isDataLoading,
     refreshData,

@@ -2,6 +2,12 @@ import { Client } from "@microsoft/microsoft-graph-client";
 import { AuthenticationProvider } from "@microsoft/microsoft-graph-client";
 import { safeLocalStorage } from '@/lib/safe-storage';
 
+export interface ClientRecord {
+  name: string;
+  payer: string;
+  rawRow: any[];
+}
+
 export class SharePointService {
   private graphClient: Client;
   private workbookSessionId: string | null = null;
@@ -344,8 +350,9 @@ export class SharePointService {
   // Получить список клиентов из SharePoint Excel файла
   async getClients(): Promise<string[]> {
     try {
-      console.log('🔄 getClients() - calling getClientsFromExcel()...');
-      return await this.getClientsFromExcel();
+      console.log('🔄 getClients() - calling getClientRecordsFromExcel()...');
+      const records = await this.getClientRecordsFromExcel();
+      return records.map(record => record.name);
     } catch (error) {
       console.error('❌ Error in getClients():', error);
       return ['Dunga', 'KenSary', 'Tasbulat']; // Fallback data
@@ -399,6 +406,75 @@ export class SharePointService {
     }
   }
 
+  async addClientRecord(data: { name: string; payer: string }): Promise<boolean> {
+    try {
+      const clientSheet = await this.resolveClientWorksheetName();
+      const usedInfo = await this.getUsedRangeInfo(clientSheet);
+      const headers = Array.isArray(usedInfo?.values?.[0]) ? usedInfo?.values?.[0] as unknown[] : [];
+
+      const normalize = (value: unknown) =>
+        value === null || value === undefined ? '' : String(value).trim().toLowerCase();
+
+      const canonicalize = (value: string) =>
+        value
+          .replace(/[^a-z0-9]+/g, '_')
+          .replace(/_{2,}/g, '_')
+          .replace(/^_|_$/g, '');
+
+      const canonicalHeaders = headers.map(header => canonicalize(normalize(header)));
+
+      const totalColumns = usedInfo?.meta
+        ? usedInfo.meta.endCol - usedInfo.meta.startCol + 1
+        : Math.max(headers.length, 3) || 3;
+
+      const rowValues = Array.from({ length: totalColumns }, () => '');
+
+      const clientIndex = canonicalHeaders.findIndex(header =>
+        header === 'client' || header.endsWith('_client')
+      );
+
+      const payerIndex = canonicalHeaders.findIndex(header =>
+        header.includes('payer') || header.includes('branch')
+      );
+
+      const resolvedClientIndex = clientIndex >= 0 ? clientIndex : Math.min(1, totalColumns - 1);
+      const resolvedPayerIndex = payerIndex >= 0
+        ? payerIndex
+        : Math.min(resolvedClientIndex + 1, totalColumns - 1);
+
+      if (resolvedClientIndex >= 0) {
+        rowValues[resolvedClientIndex] = data.name.trim();
+      }
+
+      if (resolvedPayerIndex >= 0) {
+        rowValues[resolvedPayerIndex] = data.payer.trim();
+      }
+
+      const startColNumber = usedInfo?.meta?.startCol ?? 1;
+      const endColNumber = startColNumber + totalColumns - 1;
+      const startColLetters = this.indexToColLetters(startColNumber);
+      const endColLetters = this.indexToColLetters(endColNumber);
+      const nextRowNumber = (usedInfo?.meta?.endRow ?? 1) + 1;
+      const range = `${startColLetters}${nextRowNumber}:${endColLetters}${nextRowNumber}`;
+
+      const cleanedRow = [rowValues.map(cell =>
+        cell === null || cell === undefined ? '' : String(cell).trim()
+      )];
+
+      const success = await this.writeExcelData(clientSheet, range, cleanedRow);
+      if (success) {
+        safeLocalStorage.removeItem('sharepoint_cached_clients');
+        safeLocalStorage.removeItem('sharepoint_cached_clients_timestamp');
+        safeLocalStorage.removeItem('sharepoint_cached_client_records');
+        safeLocalStorage.removeItem('sharepoint_cached_client_records_timestamp');
+      }
+      return success;
+    } catch (error) {
+      console.error('❌ Error adding client record:', error);
+      return false;
+    }
+  }
+
   // Создать новый Work Order в Excel файле
   async createWorkOrder(data: any): Promise<boolean> {
     try {
@@ -430,51 +506,97 @@ export class SharePointService {
       const newRowData = headers.map((header: string, index: number) => {
         const headerStr = header ? header.toString().trim() : '';
         console.log(`🔍 Column ${index}: "${headerStr}"`);
-        
-        // Динамическое сопоставление по названию заголовка
-        const headerLower = headerStr.toLowerCase();
-        
-        if (headerLower.includes('wo') && !headerLower.includes('date')) {
+
+        const canonical = headerStr
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '_')
+          .replace(/_{2,}/g, '_')
+          .replace(/^_|_$/g, '');
+
+        const stagePrices = data.stage_prices || {};
+        const isOctg = (data.wo_type || '').toLowerCase().includes('octg');
+        const transport = data.transport || '';
+
+        if ((canonical === 'wo_no' || canonical === 'wo') && !canonical.includes('date')) {
           console.log(`   ✅ WO_No column: ${data.wo_no}`);
           return data.wo_no;
         }
-        if (headerLower.includes('client')) {
+        if (canonical.includes('client')) {
           console.log(`   ✅ Client column: ${data.client}`);
           return data.client;
         }
-        if (headerLower.includes('type')) {
-          console.log(`   ✅ Type column: ${data.type}`);
-          return data.type;
+        if (canonical === 'type' || canonical.includes('type_of_pipe') || canonical.includes('pipe_type')) {
+          console.log(`   ✅ Pipe type column: ${data.type || data.pipe_type}`);
+          return data.type || data.pipe_type || '';
         }
-        if (headerLower.includes('diameter') || headerLower.includes('диаметр')) {
+        if (canonical.includes('diameter')) {
           console.log(`   ✅ Diameter column: ${data.diameter}`);
-          return data.diameter;
+          return data.diameter || '';
         }
-        if (headerLower.includes('coupling')) {
+        if (canonical.includes('coupling_replace')) {
           console.log(`   ✅ Coupling column: ${data.coupling_replace}`);
-          return data.coupling_replace;
+          return data.coupling_replace || '';
         }
-        if (headerLower.includes('date')) {
+        if (canonical.includes('wo_date') || (canonical.includes('date') && !canonical.includes('update'))) {
           console.log(`   ✅ Date column: ${data.wo_date}`);
-          return data.wo_date;
+          return data.wo_date || '';
         }
-        if (headerLower.includes('transport')) {
-          console.log(`   ✅ Transport column: ${data.transport}`);
-          return data.transport;
+        if (canonical.includes('type_of_wo') || canonical === 'wo_type') {
+          console.log(`   ✅ WO Type column: ${data.wo_type}`);
+          return data.wo_type || '';
         }
-        if (headerLower.includes('key')) {
-          console.log(`   ✅ Key column: ${data.key_col}`);
-          return data.key_col;
+        if (canonical.includes('planned_qty') || canonical.includes('planned_quantity')) {
+          console.log(`   ✅ Planned Qty column: ${data.planned_qty}`);
+          return data.planned_qty || '';
         }
-        if (headerLower.includes('payer')) {
+        if (canonical.includes('price_type')) {
+          console.log(`   ✅ Price Type column: ${data.price_type}`);
+          return data.price_type || (data.wo_type === 'Coupling Replace' ? 'Coupling Replace' : '');
+        }
+        if (canonical === 'price' || canonical.includes('price_for_each_pipe')) {
+          const priceValue = data.wo_type === 'Coupling Replace'
+            ? data.replacement_price
+            : data.price_type === 'Fixed'
+              ? data.price_per_pipe
+              : '';
+          console.log(`   ✅ Price column: ${priceValue}`);
+          return priceValue || '';
+        }
+        if (canonical.includes('rattling') && canonical.includes('price')) {
+          return isOctg && data.price_type === 'Stage Based' ? stagePrices.rattling_price || '' : '';
+        }
+        if (canonical.includes('external') && canonical.includes('price')) {
+          return isOctg && data.price_type === 'Stage Based' ? stagePrices.external_price || '' : '';
+        }
+        if (canonical.includes('hydro') && canonical.includes('price')) {
+          return isOctg && data.price_type === 'Stage Based' ? stagePrices.hydro_price || '' : '';
+        }
+        if (canonical.includes('mpi') && canonical.includes('price')) {
+          return isOctg && data.price_type === 'Stage Based' ? stagePrices.mpi_price || '' : '';
+        }
+        if (canonical.includes('drift') && canonical.includes('price')) {
+          return isOctg && data.price_type === 'Stage Based' ? stagePrices.drift_price || '' : '';
+        }
+        if (canonical.includes('emi') && canonical.includes('price')) {
+          return isOctg && data.price_type === 'Stage Based' ? stagePrices.emi_price || '' : '';
+        }
+        if (canonical.includes('marking') && canonical.includes('price')) {
+          return isOctg && data.price_type === 'Stage Based' ? stagePrices.marking_price || '' : '';
+        }
+        if (canonical === 'transport' || canonical.includes('transport_option')) {
+          console.log(`   ✅ Transport column: ${transport}`);
+          return transport;
+        }
+        if (canonical.includes('transport') && canonical.includes('cost')) {
+          const transportCost = transport === 'TCC' ? data.transport_cost : '';
+          console.log(`   ✅ Transport cost column: ${transportCost}`);
+          return transportCost || '';
+        }
+        if (canonical.includes('payer') || canonical.includes('branch')) {
           console.log(`   ✅ Payer column: ${data.payer}`);
-          return data.payer;
+          return data.payer || '';
         }
-        if (headerLower.includes('qty') || headerLower.includes('quantity')) {
-          console.log(`   ✅ Quantity column: ${data.planned_qty}`);
-          return data.planned_qty;
-        }
-        
+
         console.log(`   ❌ Unknown column "${headerStr}" - leaving empty`);
         return '';
       });
@@ -1584,50 +1706,75 @@ export class SharePointService {
     }
   }
 
-  // Получить клиентов из Excel файла
-  async getClientsFromExcel(): Promise<string[]> {
-    try {
-      console.log('🔍 Starting to load clients from Excel...');
-      
-      // Сначала получим все доступные листы
-      const worksheets = await this.getWorksheetNames();
-      console.log('📋 All available worksheets:', worksheets);
-      
-      // Попробуем разные варианты названий листа с клиентами
-      const possibleClientSheets = ['Client', 'Clients', 'client', 'clients', 'wo'];
-      let clientSheet = null;
-      
-      for (const sheetName of possibleClientSheets) {
-        if (worksheets.includes(sheetName)) {
-          clientSheet = sheetName;
-          console.log(`✅ Found client sheet: '${clientSheet}'`);
-          break;
-        }
+  private async resolveClientWorksheetName(): Promise<string> {
+    const worksheets = await this.getWorksheetNames();
+    const possibleClientSheets = ['Client', 'Clients', 'client', 'clients', 'ClientsList', 'clients_list'];
+    for (const sheetName of possibleClientSheets) {
+      const found = worksheets.find(sheet => sheet.toLowerCase() === sheetName.toLowerCase());
+      if (found) {
+        return found;
       }
-      
-      if (!clientSheet) {
-        console.log('❌ No client sheet found. Trying first sheet with data...');
-        clientSheet = worksheets[0]; // Используем первый лист
-      }
-      
-      // Получаем все данные из листа 'wo' и извлекаем колонку B
-      const data = await this.getExcelData(clientSheet); // Получаем все данные
-      console.log(`📊 Full data from sheet '${clientSheet}':`, data);
-      
-      // Извлекаем только колонку B (индекс 1)
-      const columnBData = data.map(row => row[1]).filter(cell => cell && cell.trim());
-      console.log(`📊 Column B data from sheet '${clientSheet}':`, columnBData);
-      
-      // Пропускаем заголовок (первую строку), фильтруем пустые и убираем дубликаты
-      const clients = [...new Set(columnBData.slice(1).filter(client => client && client.trim()))];
-      console.log('🔄 Unique clients after removing duplicates:', clients);
-      console.log('✅ Filtered clients:', clients);
-      
-      return clients;
-    } catch (error) {
-      console.error('❌ Error getting clients from Excel:', error);
-      return ['Dunga', 'KenSary', 'Tasbulat']; // Fallback
     }
+    // Если специального листа не нашли, возвращаем первый лист с данными
+    return worksheets[0];
+  }
+
+  async getClientRecordsFromExcel(): Promise<ClientRecord[]> {
+    try {
+      console.log('🔍 Loading client records from Excel...');
+
+      const clientSheet = await this.resolveClientWorksheetName();
+      console.log(`✅ Using client sheet: '${clientSheet}'`);
+
+      const data = await this.getExcelData(clientSheet);
+      if (!data || data.length <= 1) {
+        return [];
+      }
+
+      const headers = (data[0] ?? []).map(header =>
+        header === null || header === undefined ? '' : String(header)
+      );
+
+      const normalise = (value: string) =>
+        value
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '_')
+          .replace(/_{2,}/g, '_')
+          .replace(/^_|_$/g, '');
+
+      const clientIndex = headers.findIndex(header => {
+        const norm = normalise(header);
+        return norm === 'client' || norm.endsWith('_client');
+      });
+
+      const payerIndex = headers.findIndex(header => {
+        const norm = normalise(header);
+        return norm.includes('payer') || norm.includes('branch');
+      });
+
+      return data
+        .slice(1)
+        .map(row => {
+          const clientName = clientIndex >= 0 ? row[clientIndex] : '';
+          const payerValue = payerIndex >= 0 ? row[payerIndex] : '';
+          const name = clientName ? String(clientName).trim() : '';
+          const payer = payerValue ? String(payerValue).trim() : '';
+          return { name, payer, rawRow: row } as ClientRecord;
+        })
+        .filter(record => record.name);
+    } catch (error) {
+      console.error('❌ Error getting client records from Excel:', error);
+      return [];
+    }
+  }
+
+  // Получить клиентов из Excel файла (для обратной совместимости)
+  async getClientsFromExcel(): Promise<string[]> {
+    const records = await this.getClientRecordsFromExcel();
+    if (!records.length) {
+      return ['Dunga', 'KenSary', 'Tasbulat'];
+    }
+    return [...new Set(records.map(record => record.name).filter(Boolean))];
   }
 
   // Получить Work Orders из Excel файла
