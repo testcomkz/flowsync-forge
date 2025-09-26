@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Database, Edit3, Lock, FileSpreadsheet, Wifi, WifiOff, ClipboardCheck, Truck } from "lucide-react";
+import { FileText, Database, Edit3, Lock, FileSpreadsheet, Wifi, WifiOff, ClipboardCheck, Truck, UserPlus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSharePoint } from "@/contexts/SharePointContext";
@@ -89,6 +89,13 @@ export const MainDashboard = () => {
   };
 
   const workCards = [
+    {
+      title: "Add Clients",
+      description: "Add new clients to the SharePoint 'client' sheet",
+      icon: UserPlus,
+      path: "/add-client",
+      color: "bg-indigo-50 hover:bg-indigo-100 border-indigo-300"
+    },
     {
       title: "Add Work Order",
       description: "Create new work orders with client and project details",

@@ -442,7 +442,8 @@ export class SharePointService {
           console.log(`   ✅ Client column: ${data.client}`);
           return data.client;
         }
-        if (headerLower.includes('type')) {
+        // Column "Type" in WO sheet means Type of Pipe (Tubing/Sucker Rod)
+        if (headerLower.includes('type') && !headerLower.includes('price')) {
           console.log(`   ✅ Type column: ${data.type}`);
           return data.type;
         }
@@ -473,6 +474,30 @@ export class SharePointService {
         if (headerLower.includes('qty') || headerLower.includes('quantity')) {
           console.log(`   ✅ Quantity column: ${data.planned_qty}`);
           return data.planned_qty;
+        }
+        // Pricing columns
+        if (headerLower.includes('pricetype')) {
+          console.log(`   ✅ PriceType column: ${data.price_type || ''}`);
+          return data.price_type || '';
+        }
+        // Generic Price (used for Fixed price or Coupling Replace)
+        if ((headerLower === 'price') || (headerLower.includes('price') && !headerLower.includes('rattling') && !headerLower.includes('external') && !headerLower.includes('hydro') && !headerLower.includes('mpi') && !headerLower.includes('drift') && !headerLower.includes('emi') && !headerLower.includes('marking') && !headerLower.includes('transport') && !headerLower.includes('type'))) {
+          const val = data.price ?? data.replacement_price ?? '';
+          console.log(`   ✅ Price column: ${val}`);
+          return val;
+        }
+        // Stage-based prices
+        if (headerLower.includes('rattling') && headerLower.includes('price')) return data.rattling_price ?? '';
+        if (headerLower.includes('external') && headerLower.includes('price')) return data.external_price ?? '';
+        if (headerLower.includes('hydro') && headerLower.includes('price')) return data.hydro_price ?? '';
+        if (headerLower.includes('mpi') && headerLower.includes('price')) return data.mpi_price ?? '';
+        if (headerLower.includes('drift') && headerLower.includes('price')) return data.drift_price ?? '';
+        if (headerLower.includes('emi') && headerLower.includes('price')) return data.emi_price ?? '';
+        if (headerLower.includes('marking') && headerLower.includes('price')) return data.marking_price ?? '';
+        // Transportation cost
+        if ((headerLower.includes('transport') || headerLower.includes('transportation')) && headerLower.includes('cost')) {
+          console.log(`   ✅ Transportation Cost column: ${data.transportation_cost || ''}`);
+          return data.transportation_cost ?? '';
         }
         
         console.log(`   ❌ Unknown column "${headerStr}" - leaving empty`);
@@ -1610,19 +1635,31 @@ export class SharePointService {
         clientSheet = worksheets[0]; // Используем первый лист
       }
       
-      // Получаем все данные из листа 'wo' и извлекаем колонку B
-      const data = await this.getExcelData(clientSheet); // Получаем все данные
+      // Получаем все данные из листа и определяем колонку "Client" динамически
+      const data = await this.getExcelData(clientSheet);
       console.log(`📊 Full data from sheet '${clientSheet}':`, data);
-      
-      // Извлекаем только колонку B (индекс 1)
-      const columnBData = data.map(row => row[1]).filter(cell => cell && cell.trim());
-      console.log(`📊 Column B data from sheet '${clientSheet}':`, columnBData);
-      
-      // Пропускаем заголовок (первую строку), фильтруем пустые и убираем дубликаты
-      const clients = [...new Set(columnBData.slice(1).filter(client => client && client.trim()))];
-      console.log('🔄 Unique clients after removing duplicates:', clients);
-      console.log('✅ Filtered clients:', clients);
-      
+
+      if (!data || data.length === 0) return [];
+
+      const headers = Array.isArray(data[0]) ? data[0].map((h: any) => String(h || '').trim()) : [];
+      let clientColIndex = headers.findIndex((h: string) => h.toLowerCase().includes('client'));
+
+      // Если в таблице клиентов нет заголовков, по умолчанию берём колонку A (индекс 0)
+      if (clientColIndex === -1) {
+        // Специальный случай для листа 'wo' — там клиент может быть в колонке B
+        clientColIndex = clientSheet.toLowerCase().startsWith('wo') ? 1 : 0;
+      }
+
+      // Соберём клиентов из найденной колонки, пропуская заголовок
+      const clients = Array.from(new Set(
+        data.slice(1)
+          .map(row => row?.[clientColIndex])
+          .filter((v: any) => v !== null && v !== undefined)
+          .map((v: any) => String(v).trim())
+          .filter((v: string) => v.length > 0)
+      ));
+
+      console.log('✅ Clients resolved dynamically from sheet:', { sheet: clientSheet, columnIndex: clientColIndex, count: clients.length });
       return clients;
     } catch (error) {
       console.error('❌ Error getting clients from Excel:', error);
@@ -1645,6 +1682,47 @@ export class SharePointService {
     } catch (error) {
       console.error('Error getting work orders from Excel:', error);
       return [];
+    }
+  }
+
+  // Добавить клиента в лист client (Client, Payer)
+  async addClient(clientName: string, payer: string): Promise<boolean> {
+    try {
+      if (!clientName || !clientName.trim()) return false;
+
+      const worksheets = await this.getWorksheetNames();
+      const clientSheet =
+        worksheets.find(s => s.toLowerCase() === 'client') ||
+        worksheets.find(s => s.toLowerCase().includes('client')) ||
+        'client';
+
+      // Получим информацию о используемом диапазоне, чтобы понять где следующая строка
+      const usedInfo = await this.getUsedRangeInfo(clientSheet);
+      const meta = usedInfo?.meta ?? { startCol: 1, startRow: 1, endCol: 2, endRow: 1 };
+      const headersRow = Array.isArray(usedInfo?.values?.[0]) ? (usedInfo!.values![0] as unknown[]) : [];
+
+      const normalize = (v: unknown) => (v === null || v === undefined ? '' : String(v).trim().toLowerCase());
+      const clientColIdx = headersRow.findIndex(h => normalize(h).includes('client'));
+      const payerColIdx = headersRow.findIndex(h => normalize(h).includes('payer') || normalize(h).includes('branch'));
+
+      const rowNumber = (meta.endRow || 1) + 1; // следующая строка
+
+      // Адреса колонок (по умолчанию A и B)
+      const clientColNumber = clientColIdx !== -1 ? meta.startCol + clientColIdx : 1;
+      const payerColNumber = payerColIdx !== -1 ? meta.startCol + payerColIdx : 2;
+      const clientColLetters = this.indexToColLetters(clientColNumber);
+      const payerColLetters = this.indexToColLetters(payerColNumber);
+
+      // Записываем имя клиента
+      const ok1 = await this.writeExcelData(clientSheet, `${clientColLetters}${rowNumber}:${clientColLetters}${rowNumber}`, [[String(clientName).trim()]]);
+      if (!ok1) return false;
+
+      // Записываем payer (может быть пустым)
+      const ok2 = await this.writeExcelData(clientSheet, `${payerColLetters}${rowNumber}:${payerColLetters}${rowNumber}`, [[String(payer || '').trim()]]);
+      return ok2;
+    } catch (error) {
+      console.error('❌ Error adding client to Excel:', error);
+      return false;
     }
   }
   // Добавить новую запись в Excel файл - ТОЧНО КАК WO FORM

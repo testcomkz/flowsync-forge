@@ -23,18 +23,34 @@ export default function WOForm() {
   const [availableClients, setAvailableClients] = useState<string[]>(clients);
   const [existingWorkOrders, setExistingWorkOrders] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [formData, setFormData] = useState({
-    wo_no: "",
-    client: "",
-    type: "",
-    diameter: "",
-    coupling_replace: "",
-    wo_date: "",
-    transport: "",
-    key_col: "",
-    payer: "",
-    planned_qty: ""
+
+  // Core fields
+  const [client, setClient] = useState("");
+  const [woNo, setWoNo] = useState("");
+  const [woDate, setWoDate] = useState("");
+  const [typeOfWO, setTypeOfWO] = useState<'OCTG' | 'Coupling'>('OCTG');
+  const [pipeType, setPipeType] = useState<'Tubing' | 'Sucker Rod'>('Tubing');
+  const [diameter, setDiameter] = useState("");
+  const [plannedQty, setPlannedQty] = useState("");
+  const [priceType, setPriceType] = useState<'Fixed' | 'Stage Based' | ''>('');
+  const [price, setPrice] = useState(""); // Fixed or Coupling Replace
+  const [transport, setTransport] = useState<'Client' | 'TCC' | ''>('');
+  const [transportCost, setTransportCost] = useState("");
+
+  // Stage-based prices
+  const [stagePrices, setStagePrices] = useState({
+    rattling_price: "",
+    external_price: "",
+    hydro_price: "",
+    mpi_price: "",
+    drift_price: "",
+    emi_price: "",
+    marking_price: "",
   });
+
+  const keyCol = woNo && client && (typeOfWO === 'Coupling' ? 'Tubing' : pipeType) && (typeOfWO === 'Coupling' ? '' : diameter)
+    ? `${woNo} - ${client} - ${(typeOfWO === 'Coupling' ? 'Tubing' : pipeType)} - ${(typeOfWO === 'Coupling' ? '' : diameter)}`.replace(/\s+-\s+$/,'')
+    : "";
 
   // Мгновенное обновление клиентов из кеша - данные всегда доступны
   useEffect(() => {
@@ -48,15 +64,15 @@ export default function WOForm() {
   // Load existing work orders when client is selected
   useEffect(() => {
     const loadWorkOrders = async () => {
-      if (!formData.client || !sharePointService) {
+      if (!client || !sharePointService) {
         setExistingWorkOrders([]);
         return;
       }
       
       try {
-        console.log(`🔍 Loading work orders for client: ${formData.client}`);
-        const workOrders = await sharePointService.getWorkOrdersByClient(formData.client);
-        console.log(`📋 Found ${workOrders.length} existing work orders for ${formData.client}:`, workOrders);
+        console.log(`🔍 Loading work orders for client: ${client}`);
+        const workOrders = await sharePointService.getWorkOrdersByClient(client);
+        console.log(`📋 Found ${workOrders.length} existing work orders for ${client}:`, workOrders);
         setExistingWorkOrders(workOrders);
       } catch (error) {
         console.error('❌ Error loading work orders:', error);
@@ -64,15 +80,19 @@ export default function WOForm() {
       }
     };
     loadWorkOrders();
-  }, [formData.client, sharePointService]);
+  }, [client, sharePointService]);
 
-  // Auto-generate Key Col when relevant fields change
-  useEffect(() => {
-    if (formData.wo_no && formData.client && formData.type && formData.diameter) {
-      const keyCol = `${formData.wo_no} - ${formData.client} - ${formData.type} - ${formData.diameter}`;
-      setFormData(prev => ({ ...prev, key_col: keyCol }));
+  // Helpers to enforce numeric formats
+  const sanitizeDecimal = (value: string) => {
+    let v = value.replace(/,/g, '.');
+    v = v.replace(/[^0-9.]/g, '');
+    const parts = v.split('.');
+    if (parts.length > 2) {
+      v = parts[0] + '.' + parts.slice(1).join('');
     }
-  }, [formData.wo_no, formData.client, formData.type, formData.diameter]);
+    return v;
+  };
+  const sanitizeInteger = (value: string) => value.replace(/[^0-9]/g, '');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,7 +115,7 @@ export default function WOForm() {
     }
 
     // Validate required fields
-    if (!formData.wo_no || !formData.client) {
+    if (!woNo || !client) {
       toast({
         title: "Ошибка валидации",
         description: "Заполните номер Work Order и выберите клиента",
@@ -105,20 +125,20 @@ export default function WOForm() {
     }
 
     // Check if work order already exists for this client
-    console.log(`🔍 Checking duplicate: WO ${formData.wo_no} for client ${formData.client}`);
-    console.log(`📋 Existing work orders for ${formData.client}:`, existingWorkOrders);
+    console.log(`🔍 Checking duplicate: WO ${woNo} for client ${client}`);
+    console.log(`📋 Existing work orders for ${client}:`, existingWorkOrders);
     
-    const isDuplicate = existingWorkOrders.some(wo => wo.toString().trim() === formData.wo_no.toString().trim());
+    const isDuplicate = existingWorkOrders.some(wo => wo.toString().trim() === woNo.toString().trim());
     console.log(`🔍 Duplicate check result:`, isDuplicate);
     
     if (isDuplicate) {
-      console.log(`❌ DUPLICATE FOUND: Work Order ${formData.wo_no} already exists for client ${formData.client}`);
+      console.log(`❌ DUPLICATE FOUND: Work Order ${woNo} already exists for client ${client}`);
         toast({
           title: "🚫 Work Order уже существует",
           description: (
             <div className="space-y-2">
               <p className="font-bold text-white">
-                Work Order <span className="bg-white text-red-600 px-2 py-1 rounded font-mono font-bold">{formData.wo_no}</span> уже существует для клиента <span className="bg-white text-blue-600 px-2 py-1 rounded font-bold">{formData.client}</span>
+                Work Order <span className="bg-white text-red-600 px-2 py-1 rounded font-mono font-bold">{woNo}</span> уже существует для клиента <span className="bg-white text-blue-600 px-2 py-1 rounded font-bold">{client}</span>
               </p>
               <p className="text-sm text-white font-medium">
                 💡 Пожалуйста, выберите другой номер Work Order
@@ -131,22 +151,33 @@ export default function WOForm() {
       return;
     }
     
-    console.log(`✅ Work Order ${formData.wo_no} is unique for client ${formData.client}, proceeding...`);
+    console.log(`✅ Work Order ${woNo} is unique for client ${client}, proceeding...`);
 
     setIsLoading(true);
     try {
-      const success = await sharePointService.createWorkOrder({
-        wo_no: formData.wo_no,
-        client: formData.client,
-        type: formData.type,
-        diameter: formData.diameter,
-        coupling_replace: formData.coupling_replace,
-        wo_date: formData.wo_date,
-        transport: formData.transport,
-        key_col: formData.key_col,
-        payer: formData.payer,
-        planned_qty: formData.planned_qty
-      });
+      // Compute payload according to selection
+      const couplingReplace = typeOfWO === 'Coupling' ? 'Yes' : 'No';
+      const woType = typeOfWO === 'Coupling' ? 'Tubing' : pipeType;
+      const payload: any = {
+        wo_no: woNo,
+        client: client,
+        type: woType,
+        diameter: typeOfWO === 'Coupling' ? '' : diameter,
+        coupling_replace: couplingReplace,
+        wo_date: woDate,
+        transport: transport,
+        key_col: keyCol,
+        payer: '',
+        planned_qty: typeOfWO === 'OCTG' ? plannedQty : '',
+        price_type: typeOfWO === 'OCTG' ? priceType : '',
+        price: typeOfWO === 'Coupling' ? price : (priceType === 'Fixed' ? price : ''),
+        transportation_cost: transport === 'TCC' ? transportCost : '',
+      };
+      if (typeOfWO === 'OCTG' && priceType === 'Stage Based') {
+        Object.assign(payload, stagePrices);
+      }
+
+      const success = await sharePointService.createWorkOrder(payload);
       
       if (success) {
         toast({
@@ -154,7 +185,7 @@ export default function WOForm() {
           description: (
             <div className="space-y-2">
               <p className="font-bold text-white">
-                Work Order <span className="bg-white text-green-600 px-2 py-1 rounded font-mono font-bold">{formData.wo_no}</span> для клиента <span className="bg-white text-blue-600 px-2 py-1 rounded font-bold">{formData.client}</span>
+                Work Order <span className="bg-white text-green-600 px-2 py-1 rounded font-mono font-bold">{woNo}</span> для клиента <span className="bg-white text-blue-600 px-2 py-1 rounded font-bold">{client}</span>
               </p>
               <p className="text-sm text-white font-medium">
                 🎉 Данные успешно сохранены в SharePoint Excel
@@ -164,23 +195,21 @@ export default function WOForm() {
           duration: 6000,
         });
         
-        // Reset form but keep frequently reused fields to allow adding next WO without reload
-        const preservedClient = formData.client;
-        const preservedType = formData.type;
-        const preservedDiameter = formData.diameter;
-        const preservedCoupling = formData.coupling_replace;
-        setFormData({
-          wo_no: '',
-          client: preservedClient,
-          type: preservedType,
-          diameter: preservedDiameter,
-          coupling_replace: preservedCoupling,
-          wo_date: '',
-          transport: '',
-          key_col: '',
-          payer: '',
-          planned_qty: ''
-        });
+        // Reset form but keep client and type-of-wo for faster entry
+        const preservedClient = client;
+        const preservedTypeOfWO = typeOfWO;
+        setClient(preservedClient);
+        setWoNo("");
+        setWoDate("");
+        setTypeOfWO(preservedTypeOfWO);
+        setPipeType('Tubing');
+        setDiameter("");
+        setPlannedQty("");
+        setPriceType('');
+        setPrice("");
+        setStagePrices({ rattling_price: "", external_price: "", hydro_price: "", mpi_price: "", drift_price: "", emi_price: "", marking_price: "" });
+        setTransport('');
+        setTransportCost("");
 
         // Refresh the work orders list to include the newly added WO (use preserved client)
         if (preservedClient) {
@@ -229,10 +258,7 @@ export default function WOForm() {
     }
   };
 
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
-
+  // UI
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
@@ -253,146 +279,168 @@ export default function WOForm() {
             <CardTitle className="text-2xl font-bold text-blue-800">Add Work Order</CardTitle>
           </CardHeader>
           <CardContent className="p-6">
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-8">
+              {/* Basic */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <Label htmlFor="wo_no" className="text-sm font-semibold text-gray-700">Work Order Number</Label>
-                  <Input
-                    id="wo_no"
-                    value={formData.wo_no}
-                    onChange={(e) => handleInputChange("wo_no", e.target.value)}
-                    placeholder="Enter WO number"
-                    className="border-2 focus:border-blue-500 h-11"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="client" className="text-sm font-semibold text-gray-700">Client</Label>
-                  <Select value={formData.client} onValueChange={(value) => handleInputChange("client", value)}>
+                  <Label className="text-sm font-semibold text-gray-700">Client</Label>
+                  <Select value={client} onValueChange={(v) => setClient(v)}>
                     <SelectTrigger className="border-2 focus:border-blue-500 h-11">
                       <SelectValue placeholder="Select client" />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableClients.map(client => (
-                        <SelectItem key={client} value={client}>{client}</SelectItem>
+                      {availableClients.map(c => (
+                        <SelectItem key={c} value={c}>{c}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-blue-600 font-medium">
-                    Чтобы добавить новый Client, создайте запись в базе данных
-                  </p>
                 </div>
-
                 <div className="space-y-2">
-                  <Label htmlFor="type" className="text-sm font-semibold text-gray-700">Type</Label>
-                  <Select onValueChange={(value) => handleInputChange("type", value)} value={formData.type}>
+                  <Label className="text-sm font-semibold text-gray-700">Work Order Number</Label>
+                  <Input value={woNo} onChange={(e)=> setWoNo(e.target.value)} placeholder="Enter WO number" className="border-2 focus:border-blue-500 h-11" required />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-gray-700">WO Date</Label>
+                  <DateInputField id="wo_date" value={woDate} onChange={(v)=> setWoDate(v)} className="border-2 focus:border-blue-500 h-11" placeholder="dd/mm/yyyy" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-gray-700">Type of WO</Label>
+                  <Select value={typeOfWO} onValueChange={(v)=> setTypeOfWO(v as any)}>
                     <SelectTrigger className="border-2 focus:border-blue-500 h-11">
-                      <SelectValue placeholder="Select type" />
+                      <SelectValue placeholder="Select type of WO" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Tubing">Tubing</SelectItem>
-                      <SelectItem value="Sucker Rod">Sucker Rod</SelectItem>
+                      <SelectItem value="OCTG">OCTG Inspection</SelectItem>
+                      <SelectItem value="Coupling">Coupling Replace</SelectItem>
                     </SelectContent>
                   </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="diameter" className="text-sm font-semibold text-gray-700">Diameter</Label>
-                  <Select value={formData.diameter} onValueChange={(value) => handleInputChange("diameter", value)}>
-                    <SelectTrigger className="border-2 focus:border-blue-500 h-11">
-                      <SelectValue placeholder="Select diameter" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="3 1/2&quot;">3 1/2"</SelectItem>
-                      <SelectItem value="2 7/8&quot;">2 7/8"</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-blue-600 font-medium">
-                    Стандартные диаметры для трубной продукции
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="coupling_replace" className="text-sm font-semibold text-gray-700">Coupling Replace</Label>
-                  <Select onValueChange={(value) => handleInputChange("coupling_replace", value)} value={formData.coupling_replace}>
-                    <SelectTrigger className="border-2 focus:border-blue-500 h-11">
-                      <SelectValue placeholder="Select option" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="No">No</SelectItem>
-                      <SelectItem value="Yes">Yes</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="wo_date" className="text-sm font-semibold text-gray-700">Work Order Date</Label>
-                  <DateInputField
-                    id="wo_date"
-                    value={formData.wo_date}
-                    onChange={(v) => handleInputChange("wo_date", v)}
-                    className="border-2 focus:border-blue-500 h-11"
-                    placeholder="dd/mm/yyyy"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="transport" className="text-sm font-semibold text-gray-700">Transport</Label>
-                  <Input
-                    id="transport"
-                    value={formData.transport}
-                    onChange={(e) => handleInputChange("transport", e.target.value)}
-                    placeholder="Enter transport details"
-                    className="border-2 focus:border-blue-500 h-11"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="key_col" className="text-sm font-semibold text-gray-700">Key Column</Label>
-                  <Input
-                    id="key_col"
-                    value={formData.key_col}
-                    placeholder="Auto-generated based on WO, Client, Type, Diameter"
-                    className="h-11 w-full rounded-md border border-gray-300 bg-gray-100 px-3 text-gray-500 shadow-sm cursor-not-allowed"
-                    readOnly
-                  />
-                  <p className="text-xs text-blue-600 font-medium">
-                    Автоматически генерируется: WO - Client - Type - Diameter
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="payer" className="text-sm font-semibold text-gray-700">Payer</Label>
-                  <Input
-                    id="payer"
-                    value={formData.payer}
-                    onChange={(e) => handleInputChange("payer", e.target.value)}
-                    placeholder="Enter payer information"
-                    className="border-2 focus:border-blue-500 h-11"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="planned_qty" className="text-sm font-semibold text-gray-700">Planned Quantity</Label>
-                  <Input
-                    id="planned_qty"
-                    type="number"
-                    value={formData.planned_qty}
-                    onChange={(e) => handleInputChange("planned_qty", e.target.value)}
-                    placeholder="Enter planned quantity"
-                    className="border-2 focus:border-blue-500 h-11"
-                    required
-                  />
                 </div>
               </div>
 
+              {/* OCTG block */}
+              {typeOfWO === 'OCTG' && (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="space-y-2">
+                      <Label>Type Of Pipe</Label>
+                      <Select value={pipeType} onValueChange={(v)=> setPipeType(v as any)}>
+                        <SelectTrigger className="border-2 focus:border-blue-500 h-11"><SelectValue placeholder="Select pipe type" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Tubing">Tubing</SelectItem>
+                          <SelectItem value="Sucker Rod">Sucker Rod</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Diameter</Label>
+                      <Select value={diameter} onValueChange={(v)=> setDiameter(v)}>
+                        <SelectTrigger className="border-2 focus:border-blue-500 h-11"><SelectValue placeholder="Select diameter" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='3 1/2"'>3 1/2"</SelectItem>
+                          <SelectItem value='2 7/8"'>2 7/8"</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Planned Qty</Label>
+                      <Input inputMode="numeric" pattern="^[0-9]+$" value={plannedQty} onChange={(e)=> setPlannedQty(sanitizeInteger(e.target.value))} placeholder="Enter quantity" className="border-2 focus:border-blue-500 h-11" />
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <Label className="text-sm font-semibold text-gray-700">Price Type</Label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <Select value={priceType} onValueChange={(v)=> setPriceType(v as any)}>
+                          <SelectTrigger className="border-2 focus:border-blue-500 h-11"><SelectValue placeholder="Select price type" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Fixed">Fixed</SelectItem>
+                            <SelectItem value="Stage Based">Stage Based</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {priceType === 'Fixed' && (
+                        <div className="space-y-2">
+                          <Label>Price for each pipe</Label>
+                          <Input inputMode="decimal" pattern="^[0-9]*\.?[0-9]+$" value={price} onChange={(e)=> setPrice(sanitizeDecimal(e.target.value))} placeholder="e.g., 1250.50" className="border-2 focus:border-blue-500 h-11" />
+                        </div>
+                      )}
+                    </div>
+
+                    {priceType === 'Stage Based' && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {[
+                          { key:'rattling_price', label:'Item: 1.7 Rattling_Price' },
+                          { key:'external_price', label:'Item: 1.1 External_Price' },
+                          { key:'hydro_price', label:'Item: 1.2 Hydro_Price' },
+                          { key:'mpi_price', label:'Item: 1.5 MPI_Price' },
+                          { key:'drift_price', label:'Item: 1.3 Drift_Price' },
+                          { key:'emi_price', label:'Item: 1.4 EMI_Price' },
+                          { key:'marking_price', label:'Item: 1.6 Marking_Price' },
+                        ].map((item)=> (
+                          <div key={item.key} className="flex items-center justify-between gap-4 p-3 rounded border bg-yellow-50">
+                            <span className="text-sm font-medium">{item.label}</span>
+                            <Input inputMode="decimal" pattern="^[0-9]*\.?[0-9]+$" className="h-10 w-40"
+                              value={(stagePrices as any)[item.key]}
+                              onChange={(e)=> setStagePrices(prev => ({ ...prev, [item.key]: sanitizeDecimal(e.target.value) }))}
+                              placeholder="0.00"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Coupling Replace block */}
+              {typeOfWO === 'Coupling' && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <Label>Type Of Pipe</Label>
+                      <Input value="Tubing" readOnly className="h-11 w-full rounded-md border border-gray-300 bg-gray-100 px-3 text-gray-500 shadow-sm cursor-not-allowed" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Price for replacement</Label>
+                      <Input inputMode="decimal" pattern="^[0-9]*\.?[0-9]+$" value={price} onChange={(e)=> setPrice(sanitizeDecimal(e.target.value))} placeholder="e.g., 7000.00" className="border-2 focus:border-blue-500 h-11" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Transport */}
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold text-gray-700">Transport</Label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <Select value={transport} onValueChange={(v)=> setTransport(v as any)}>
+                      <SelectTrigger className="border-2 focus:border-blue-500 h-11"><SelectValue placeholder="Select transport" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Client">Client</SelectItem>
+                        <SelectItem value="TCC">TCC</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {transport === 'TCC' && (
+                    <div className="space-y-2">
+                      <Label>Transportation Cost</Label>
+                      <Input inputMode="decimal" pattern="^[0-9]*\.?[0-9]+$" value={transportCost} onChange={(e)=> setTransportCost(sanitizeDecimal(e.target.value))} placeholder="0.00" className="border-2 focus:border-blue-500 h-11" />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Key */}
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold text-gray-700">Key Column</Label>
+                <Input value={keyCol} placeholder="Auto-generated based on WO, Client, Type, Diameter" className="h-11 w-full rounded-md border border-gray-300 bg-gray-100 px-3 text-gray-500 shadow-sm cursor-not-allowed" readOnly />
+              </div>
+
               <div className="flex justify-end space-x-4 pt-6 border-t-2 border-gray-100">
-                <Button type="button" variant="outline" onClick={() => navigate("/")} className="border-2 h-12 px-6">
-                  Cancel
-                </Button>
+                <Button type="button" variant="outline" onClick={() => navigate("/")} className="border-2 h-12 px-6">Cancel</Button>
                 <Button type="submit" className="h-12 px-6 font-semibold" disabled={isLoading || !isConnected}>
-                  {isLoading ? "Creating..." : "Create Work Order"}
+                  {isLoading ? "Creating..." : "Save Work Order"}
                 </Button>
               </div>
             </form>

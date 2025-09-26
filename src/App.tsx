@@ -12,6 +12,7 @@ import LoadOut from "./pages/LoadOut";
 import LoadOutEdit from "./pages/LoadOutEdit";
 import InspectionEdit from "./pages/InspectionEdit";
 import TubingRegistryEdit from "./pages/TubingRegistryEdit";
+import AddClient from "./pages/AddClient";
 import "./index.css";
 
 const router = createBrowserRouter([
@@ -26,6 +27,10 @@ const router = createBrowserRouter([
   {
     path: "/wo-form",
     element: <WOForm />,
+  },
+  {
+    path: "/add-client",
+    element: <AddClient />,
   },
   {
     path: "/edit",
