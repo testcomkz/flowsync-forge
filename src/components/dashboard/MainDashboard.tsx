@@ -94,14 +94,14 @@ export const MainDashboard = () => {
       description: "Register new clients and payer details for work orders",
       icon: UserPlus,
       path: "/add-client",
-      color: "bg-indigo-50 hover:bg-indigo-100 border-indigo-300"
+      color: "bg-green-50 hover:bg-green-100 border-green-300"
     },
     {
       title: "Add Work Order",
       description: "Create new work orders with client and project details",
       icon: FileText,
       path: "/wo-form",
-      color: "bg-blue-50 hover:bg-blue-100 border-blue-300"
+      color: "bg-green-50 hover:bg-green-100 border-green-300"
     },
     {
       title: "Tubing Registry",
@@ -115,21 +115,21 @@ export const MainDashboard = () => {
       description: "Complete inspection details for arrived batches",
       icon: ClipboardCheck,
       path: "/inspection-data",
-      color: "bg-emerald-50 hover:bg-emerald-100 border-emerald-300"
+      color: "bg-green-50 hover:bg-green-100 border-green-300"
     },
     {
       title: "Load Out",
       description: "Complete load out and finalize inspected batches",
       icon: Truck,
       path: "/load-out",
-      color: "bg-sky-50 hover:bg-sky-100 border-sky-300"
+      color: "bg-green-50 hover:bg-green-100 border-green-300"
     },
     {
       title: "Edit Records",
       description: "Modify existing work orders and tubing records",
       icon: Edit3,
       path: "/edit-records",
-      color: "bg-orange-50 hover:bg-orange-100 border-orange-300"
+      color: "bg-green-50 hover:bg-green-100 border-green-300"
     }
   ];
 

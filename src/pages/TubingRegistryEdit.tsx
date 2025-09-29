@@ -129,6 +129,16 @@ export default function TubingRegistryEdit() {
       return;
     }
 
+    const confirmMsg = [
+      'Are you sure you want to update Tubing Registry?',
+      `Client: ${record.client}`,
+      `WO: ${record.wo_no}`,
+      `Batch: ${record.batch}`
+    ].join('\n');
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+
     setIsSaving(true);
     try {
       const pipeToValue = computedPipeTo || record.pipe_to || "";
@@ -185,39 +195,39 @@ export default function TubingRegistryEdit() {
             <ArrowLeft className="h-4 w-4" />
             Back to Edit Records
           </Button>
-          <div className="flex items-center gap-2 text-sm text-amber-600">
+          <div className="flex items-center gap-2 text-sm text-blue-600">
             <Layers className="h-4 w-4" />
             Tubing Registry Edit
           </div>
         </div>
 
-        <Card className="border-2 border-amber-200 shadow-sm">
-          <CardHeader className="border-b bg-white/80">
-            <CardTitle className="text-xl font-semibold text-amber-900">Update Tubing Registry</CardTitle>
+        <Card className="border-2 border-blue-200 rounded-xl shadow-md">
+          <CardHeader className="border-b bg-blue-50">
+            <CardTitle className="text-xl font-semibold text-blue-900">Update Tubing Registry</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5 p-5">
             {missingSelection || !record ? (
-              <div className="rounded-lg border border-dashed border-amber-300 bg-white p-6 text-center text-sm text-amber-700">
+              <div className="rounded-lg border border-dashed border-blue-300 bg-white p-6 text-center text-sm text-blue-700">
                 Batch details not found. Please return to Edit Records and select a batch.
               </div>
             ) : (
               <>
-                <div className="grid gap-3 rounded-xl border border-amber-100 bg-amber-50/70 p-3 md:grid-cols-4">
+                <div className="grid gap-3 rounded-xl border border-blue-100 bg-white p-3 md:grid-cols-4">
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-amber-700">Client</p>
-                    <p className="text-base font-semibold text-amber-900">{record.client}</p>
+                    <p className="text-xs uppercase tracking-wide text-blue-700">Client</p>
+                    <p className="text-base font-semibold text-blue-900">{record.client}</p>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-amber-700">Work Order</p>
-                    <p className="text-base font-semibold text-amber-900">{record.wo_no}</p>
+                    <p className="text-xs uppercase tracking-wide text-blue-700">Work Order</p>
+                    <p className="text-base font-semibold text-blue-900">{record.wo_no}</p>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-amber-700">Batch</p>
-                    <p className="text-base font-semibold text-amber-900">{record.batch}</p>
+                    <p className="text-xs uppercase tracking-wide text-blue-700">Batch</p>
+                    <p className="text-base font-semibold text-blue-900">{record.batch}</p>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-amber-700">Diameter</p>
-                    <p className="text-base font-semibold text-amber-900">{record.diameter || "—"}</p>
+                    <p className="text-xs uppercase tracking-wide text-blue-700">Diameter</p>
+                    <p className="text-base font-semibold text-blue-900">{record.diameter || "—"}</p>
                   </div>
                 </div>
 
@@ -256,11 +266,11 @@ export default function TubingRegistryEdit() {
                 <div className="flex gap-3">
                   <div className="flex-1 space-y-2">
                     <Label>Pipe From</Label>
-                    <Input value={pipeFrom || "—"} readOnly className="bg-white h-9" />
+                    <Input value={pipeFrom || "—"} readOnly className="h-9 w-full rounded-md border border-gray-300 bg-gray-100 px-3 text-gray-600 shadow-sm" />
                   </div>
                   <div className="flex-1 space-y-2">
                     <Label>Pipe To</Label>
-                    <Input value={computedPipeTo || record?.pipe_to || "—"} readOnly className="bg-white h-9" />
+                    <Input value={computedPipeTo || record?.pipe_to || "—"} readOnly className="h-9 w-full rounded-md border border-gray-300 bg-gray-100 px-3 text-gray-600 shadow-sm" />
                   </div>
                   <div className="flex-1 space-y-2">
                     <Label>Arrival Date</Label>
@@ -270,7 +280,7 @@ export default function TubingRegistryEdit() {
 
                 <div className="flex justify-end gap-3">
                   <Button variant="destructive" onClick={handleCancel} className="min-w-[120px]">Cancel</Button>
-                  <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[140px]">
+                  <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[140px] bg-blue-600 hover:bg-blue-700 text-white">
                     {isSaving ? "Updating..." : "Update"}
                   </Button>
                 </div>

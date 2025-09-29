@@ -11,6 +11,7 @@ import { useSharePoint } from "@/contexts/SharePointContext";
 import { useToast } from "@/hooks/use-toast";
 import { useSharePointInstantData } from "@/hooks/useInstantData";
 import { safeLocalStorage } from "@/lib/safe-storage";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 export default function AddClient() {
   const navigate = useNavigate();
@@ -24,6 +25,66 @@ export default function AddClient() {
     payer: "",
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+
+  const [confirmLines, setConfirmLines] = useState<string[]>([]);
+
+  const doSave = async (name: string, payer: string) => {
+    setIsSaving(true);
+    try {
+      const success = await sharePointService.addClientRecord({ name, payer });
+      if (!success) {
+        toast({
+          title: "Не удалось сохранить",
+          description: "Проверьте, что Excel файл свободен и попробуйте снова",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const updatedRecords = await sharePointService.getClientRecordsFromExcel();
+      const updatedNames = Array.from(new Set(updatedRecords.map(record => record.name).filter(Boolean))).sort((a, b) =>
+        a.localeCompare(b)
+      );
+      const recordsPayload = JSON.stringify(updatedRecords);
+      const namesPayload = JSON.stringify(updatedNames);
+      const timestamp = new Date().toISOString();
+
+      safeLocalStorage.setJSON("sharepoint_cached_client_records", updatedRecords);
+      safeLocalStorage.setItem("sharepoint_cached_client_records_timestamp", timestamp);
+      safeLocalStorage.dispatchStorageEvent("sharepoint_cached_client_records", recordsPayload);
+
+      safeLocalStorage.setJSON("sharepoint_cached_clients", updatedNames);
+      safeLocalStorage.setItem("sharepoint_cached_clients_timestamp", timestamp);
+      safeLocalStorage.dispatchStorageEvent("sharepoint_cached_clients", namesPayload);
+
+      toast({
+        title: "Клиент добавлен",
+        description: `${name} успешно сохранён в SharePoint`,
+      });
+
+      setFormState({ name: "", payer: "" });
+
+      try {
+        if (refreshDataInBackground) {
+          safeLocalStorage.removeItem("sharepoint_last_refresh");
+          await refreshDataInBackground(sharePointService);
+        }
+      } catch (error) {
+        console.warn("Не удалось обновить кеш после добавления клиента:", error);
+      }
+    } catch (error) {
+      console.error("Failed to add client:", error);
+      toast({
+        title: "Ошибка",
+        description: "Не удалось добавить клиента. Попробуйте снова",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+      setIsConfirmOpen(false);
+    }
+  };
 
   const sortedRecords = useMemo(() => {
     return [...clientRecords]
@@ -88,78 +149,30 @@ export default function AddClient() {
       return;
     }
 
-    setIsSaving(true);
-    try {
-      const success = await sharePointService.addClientRecord({ name, payer });
-      if (!success) {
-        toast({
-          title: "Не удалось сохранить",
-          description: "Проверьте, что Excel файл свободен и попробуйте снова",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const updatedRecords = await sharePointService.getClientRecordsFromExcel();
-      const updatedNames = Array.from(new Set(updatedRecords.map(record => record.name).filter(Boolean))).sort((a, b) =>
-        a.localeCompare(b)
-      );
-      const recordsPayload = JSON.stringify(updatedRecords);
-      const namesPayload = JSON.stringify(updatedNames);
-      const timestamp = new Date().toISOString();
-
-      safeLocalStorage.setJSON("sharepoint_cached_client_records", updatedRecords);
-      safeLocalStorage.setItem("sharepoint_cached_client_records_timestamp", timestamp);
-      safeLocalStorage.dispatchStorageEvent("sharepoint_cached_client_records", recordsPayload);
-
-      safeLocalStorage.setJSON("sharepoint_cached_clients", updatedNames);
-      safeLocalStorage.setItem("sharepoint_cached_clients_timestamp", timestamp);
-      safeLocalStorage.dispatchStorageEvent("sharepoint_cached_clients", namesPayload);
-
-      toast({
-        title: "Клиент добавлен",
-        description: `${name} успешно сохранён в SharePoint`,
-      });
-
-      setFormState({ name: "", payer: "" });
-
-      try {
-        if (refreshDataInBackground) {
-          safeLocalStorage.removeItem("sharepoint_last_refresh");
-          await refreshDataInBackground(sharePointService);
-        }
-      } catch (error) {
-        console.warn("Не удалось обновить кеш после добавления клиента:", error);
-      }
-    } catch (error) {
-      console.error("Failed to add client:", error);
-      toast({
-        title: "Ошибка",
-        description: "Не удалось добавить клиента. Попробуйте снова",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSaving(false);
-    }
+    setConfirmLines([
+      `Client: ${name}`,
+      `Payer: ${payer || '—'}`,
+    ]);
+    setIsConfirmOpen(true);
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-slate-50">
       <Header />
       <div className="container mx-auto px-6 py-8">
         <div className="mb-6">
           <Button
-            variant="outline"
+            variant="ghost"
             onClick={() => navigate("/")}
-            className="flex items-center space-x-2 border-2 hover:bg-gray-50"
+            className="flex items-center gap-2 text-slate-600"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Back to Dashboard</span>
           </Button>
         </div>
 
-        <Card className="max-w-4xl mx-auto border-2 shadow-lg">
-          <CardHeader className="bg-blue-50 border-b-2 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <Card className="max-w-4xl mx-auto border-2 border-blue-200 rounded-xl shadow-md">
+          <CardHeader className="bg-blue-50 border-b flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <CardTitle className="text-2xl font-bold text-blue-800">Add Client</CardTitle>
               <p className="text-sm text-blue-600">Создайте нового клиента и свяжите с ним Payer</p>
@@ -169,6 +182,17 @@ export default function AddClient() {
             </div>
           </CardHeader>
           <CardContent className="p-6 space-y-10">
+            <ConfirmDialog
+              open={isConfirmOpen}
+              title="Add Client?"
+              description="Please confirm adding the following client to SharePoint"
+              lines={confirmLines}
+              confirmText="Add"
+              cancelText="Cancel"
+              onConfirm={() => doSave(formState.name.trim(), formState.payer.trim())}
+              onCancel={() => setIsConfirmOpen(false)}
+              loading={isSaving}
+            />
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">

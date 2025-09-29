@@ -39,6 +39,8 @@ interface ArrivedBatchRow {
   drift_qty: number | null;
   emi_qty: number | null;
   marking_qty: number | null;
+  pipe_from?: number | null;
+  pipe_to?: number | null;
 }
 
 const STAGE_ORDER: StageKey[] = [
@@ -149,6 +151,7 @@ export default function InspectionData() {
   const [initialQty, setInitialQty] = useState<number>(0);
   const [processedKeys, setProcessedKeys] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const stagesCardId = "inspection-stages";
   // track initialization to avoid overwriting user's edits when SharePoint cache refreshes
   const [initializedRowKey, setInitializedRowKey] = useState<string | null>(null);
   // Track if inspection stages are filled to enable inspection data
@@ -264,7 +267,9 @@ export default function InspectionData() {
         mpi_qty: toNumeric(mpiQtyIndex === -1 ? null : row[mpiQtyIndex]),
         drift_qty: toNumeric(driftQtyIndex === -1 ? null : row[driftQtyIndex]),
         emi_qty: toNumeric(emiQtyIndex === -1 ? null : row[emiQtyIndex]),
-        marking_qty: toNumeric(markingQtyIndex === -1 ? null : row[markingQtyIndex])
+        marking_qty: toNumeric(markingQtyIndex === -1 ? null : row[markingQtyIndex]),
+        pipe_from: pFrom,
+        pipe_to: pTo,
       });
     });
 
@@ -387,6 +392,8 @@ export default function InspectionData() {
     setInitializedRowKey(null);
   }, [selectedBatch]);
 
+  // Removed Qty change UI and handlers from Inspection Data per requirements
+
   const toNum = (s: string) => (s === "" ? 0 : Number(s));
   const computedQuantities = useMemo(() => {
     const r = Number.isFinite(initialQty) ? initialQty : 0;
@@ -465,11 +472,15 @@ export default function InspectionData() {
       return;
     }
 
-    const scrapInput = sanitizeDigits(scrapValue);
-    if (scrapInput === "") { toast({ title: "Ошибка", description: "Введите Scrap", variant: "destructive" }); return; }
-    const scrapNumber = Number(scrapInput);
-    if (!Number.isFinite(scrapNumber)) { toast({ title: "Ошибка", description: "Некорректное значение Scrap", variant: "destructive" }); return; }
-    if (scrapNumber !== totalScrap) { toast({ title: "Ошибка", description: "Итоговый Scrap не совпадает с суммой скрапов таблицы", variant: "destructive" }); return; }
+    // Validate totals: Class1 + Class2 + Class3 + Repair + Total Scrap must equal batch Qty
+    const c1 = Number(sanitizeDigits(class1)) || 0;
+    const c2 = Number(sanitizeDigits(class2)) || 0;
+    const c3 = Number(sanitizeDigits(class3)) || 0;
+    const rep = Number(sanitizeDigits(repairValue)) || 0;
+    if (c1 + c2 + c3 + rep + totalScrap !== initialQty) {
+      toast({ title: "Ошибка", description: "Сумма Class1 + Class2 + Class3 + Repair + Scrap должна равняться Qty батча", variant: "destructive" });
+      return;
+    }
 
     if (!startDate) { toast({ title: "Ошибка", description: "Выберите Start Date", variant: "destructive" }); return; }
     if (!endDate) { toast({ title: "Ошибка", description: "Выберите End Date", variant: "destructive" }); return; }
@@ -486,11 +497,11 @@ export default function InspectionData() {
         client: selectedRow.client,
         wo_no: selectedRow.wo_no,
         batch: selectedRow.batch,
-        class_1: class1,
-        class_2: class2,
-        class_3: class3,
-        repair: sanitizeDigits(repairValue) || "0",
-        scrap: scrapNumber,
+        class_1: String(c1),
+        class_2: String(c2),
+        class_3: String(c3),
+        repair: String(rep),
+        scrap: totalScrap,
         start_date: startDate,
         end_date: endDate,
         rattling_qty: stageNumbers.rattling,
@@ -500,6 +511,13 @@ export default function InspectionData() {
         drift_qty: stageNumbers.drift,
         emi_qty: stageNumbers.emi,
         marking_qty: stageNumbers.marking,
+        // persist per-stage scrap quantities as well
+        rattling_scrap_qty: Number(scrapInputs.rattling || 0),
+        external_scrap_qty: Number(scrapInputs.external || 0),
+        jetting_scrap_qty: Number(scrapInputs.jetting || 0),
+        mpi_scrap_qty: Number(scrapInputs.mpi || 0),
+        drift_scrap_qty: Number(scrapInputs.drift || 0),
+        emi_scrap_qty: Number(scrapInputs.emi || 0),
         status: "Inspection Done"
       });
 
@@ -552,15 +570,15 @@ export default function InspectionData() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-slate-50">
       <Header />
       <div className="container mx-auto px-4 py-6">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-          <Button variant="outline" onClick={() => navigate("/")} className="flex items-center gap-2">
+          <Button variant="ghost" onClick={() => navigate("/")} className="flex items-center gap-2 text-slate-600">
             <ArrowLeft className="h-4 w-4" />
             <span>Back to Dashboard</span>
           </Button>
-          <div className="flex items-center gap-2 text-gray-600">
+          <div className="flex items-center gap-2 text-blue-600">
             <ClipboardCheck className="h-5 w-5" />
             <span>Inspection Data Entry</span>
           </div>
@@ -569,8 +587,8 @@ export default function InspectionData() {
         <div className="grid gap-2 lg:grid-cols-[340px_minmax(0,1fr)] items-start max-w-[1024px] mx-auto">
         <div className="lg:col-start-1 lg:row-start-1 flex flex-col gap-1 h-full">
         {/* Step 1: Batch Selection */}
-        <Card className="border-blue-100 shadow-sm self-start">
-          <CardHeader className="border-b border-blue-100 px-4 py-3">
+        <Card className="border-2 border-blue-200 rounded-xl shadow-md self-start">
+          <CardHeader className="border-b bg-blue-50 px-4 py-3">
             <CardTitle className="text-lg font-semibold text-blue-900">Batch Selection</CardTitle>
           </CardHeader>
           <CardContent className="p-4 pt-3">
@@ -642,7 +660,7 @@ export default function InspectionData() {
             </div>
 
             {selectedRow && (
-              <div className="mt-3 flex items-start justify-between rounded-lg border border-blue-100 bg-blue-50/80 p-2 text-xs text-blue-900">
+              <div className="mt-3 flex items-start justify-between rounded-lg border border-blue-100 bg-white p-2 text-xs text-blue-900">
                 <div>
                   <p className="font-semibold">Batch Info</p>
                   <p>Qty: {initialQty}</p>
@@ -652,37 +670,39 @@ export default function InspectionData() {
                 </span>
               </div>
             )}
+
+            {/* Qty change is intentionally not available on Inspection Data page */}
           </CardContent>
         </Card>
 
         {/* Step 2: Inspection Stages */}
-        <Card className={`border-slate-200 shadow-sm h-full flex flex-col ${!selectedRow ? 'opacity-50' : ''}`}>
-          <CardHeader className="flex flex-col gap-1 border-b border-slate-200 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle className="text-lg font-semibold text-slate-900">Inspection Stages</CardTitle>
+        <Card id={stagesCardId} className={`border-2 border-blue-200 rounded-xl shadow-md h-full flex flex-col ${!selectedRow ? 'opacity-50' : ''}`}>
+          <CardHeader className="flex flex-col gap-1 border-b bg-blue-50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle className="text-lg font-semibold text-blue-900">Inspection Stages</CardTitle>
             {selectedRow && (
               <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-                <span className="rounded-full bg-emerald-50 px-3 py-1 font-medium text-emerald-700">
+                <span className="rounded-full bg-blue-100 px-3 py-1 font-medium text-blue-800">
                   {selectedRow.status || "Arrived"}
                 </span>
                 <span>
-                  Total Qty: <span className="font-semibold text-slate-900">{initialQty}</span>
+                  Total Qty: <span className="font-semibold text-blue-900">{initialQty}</span>
                 </span>
               </div>
             )}
           </CardHeader>
           <CardContent className="space-y-2 p-3 pt-2 flex-1">
             {!selectedRow && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-center text-xs text-amber-800">
+              <div className="rounded-lg border border-blue-200 bg-white p-2 text-center text-xs text-blue-800">
                 Выберите партию в разделе "Batch Selection" для заполнения этапов инспекции
               </div>
             )}
-            <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <div className="overflow-x-auto rounded-lg border border-blue-100">
               <Table>
-                <TableHeader className="bg-slate-50 [&_th]:h-9 [&_th]:px-2.5 [&_th]:py-1.5">
+                <TableHeader className="bg-blue-50 [&_th]:h-9 [&_th]:px-2.5 [&_th]:py-1.5">
                   <TableRow>
-                    <TableHead className="w-1/3 text-sm font-semibold text-slate-600">Stage</TableHead>
-                    <TableHead className="text-sm font-semibold text-slate-600">Qty</TableHead>
-                    <TableHead className="text-sm font-semibold text-slate-600">Scrap Qty</TableHead>
+                    <TableHead className="w-1/3 text-sm font-semibold text-blue-700">Stage</TableHead>
+                    <TableHead className="text-sm font-semibold text-blue-700">Qty</TableHead>
+                    <TableHead className="text-sm font-semibold text-blue-700">Scrap Qty</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -796,18 +816,6 @@ export default function InspectionData() {
                   disabled={!stagesCompleted}
                   className="h-8 text-sm"
                   placeholder="dd/mm/yyyy"
-                />
-              </div>
-              <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="scrap">Scrap</Label>
-                <Input
-                  id="scrap"
-                  value={scrapValue}
-                  onChange={event => setScrapValue(sanitizeDigits(event.target.value))}
-                  placeholder="0"
-                  inputMode="numeric"
-                  disabled={!stagesCompleted}
-                  className={`h-8 text-sm ${!stagesCompleted ? 'bg-gray-100 text-gray-500 border-gray-300 cursor-not-allowed' : ''}`}
                 />
               </div>
             </div>

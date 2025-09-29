@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/hooks/use-toast";
 import { useSharePoint } from "@/contexts/SharePointContext";
 import { useSharePointInstantData } from "@/hooks/useInstantData";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   parseTubingRecords,
   sanitizeNumberString,
@@ -23,6 +24,7 @@ interface LocationState {
   client?: string;
   wo_no?: string;
   batch?: string;
+  overrideQty?: number;
 }
 
 const STAGE_META: {
@@ -47,7 +49,7 @@ export default function InspectionEdit() {
   const { sharePointService, isConnected, refreshDataInBackground } = useSharePoint();
   const { tubingData } = useSharePointInstantData();
 
-  const { client, wo_no, batch } = (location.state as LocationState | null) ?? {};
+  const { client, wo_no, batch, overrideQty } = (location.state as LocationState | null) ?? {};
 
   const records = useMemo(() => parseTubingRecords(tubingData ?? []), [tubingData]);
   const record = useMemo(
@@ -60,6 +62,16 @@ export default function InspectionEdit() {
       ) ?? null,
     [records, client, wo_no, batch]
   );
+
+  // Effective Qty used for calculations and validations. If overrideQty provided from Batch Selection, use it.
+  const effectiveQty = useMemo(() => {
+    if (typeof overrideQty === 'number' && Number.isFinite(overrideQty) && overrideQty > 0) {
+      return overrideQty;
+    }
+    const raw = sanitizeNumberString(record?.qty || "");
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0;
+  }, [overrideQty, record?.qty]);
 
   const [baseStageQuantities, setBaseStageQuantities] = useState<Record<StageKey, string>>({
     rattling: "",
@@ -86,6 +98,8 @@ export default function InspectionEdit() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [confirmLines, setConfirmLines] = useState<string[]>([]);
   const lastRecordIdRef = useRef<string | null>(null);
   const initialRef = useRef<{
     base: Record<StageKey, string>;
@@ -168,6 +182,29 @@ export default function InspectionEdit() {
 
   const handleScrapChange = (key: ScrapKey, value: string) => {
     const sanitized = sanitizeNumberString(value);
+    // Enforce: scrap at each stage cannot exceed available quantity at that stage
+    const r = effectiveQty || 0;
+    const ext = Math.max(0, r - (Number(sanitizeNumberString(key === 'rattling' ? sanitized : scrapQuantities.rattling)) || 0));
+    const hyd = Math.max(0, ext - (Number(sanitizeNumberString(key === 'external' ? sanitized : scrapQuantities.external)) || 0));
+    const mp = Math.max(0, hyd - (Number(sanitizeNumberString(key === 'jetting' ? sanitized : scrapQuantities.jetting)) || 0));
+    const dr = Math.max(0, mp - (Number(sanitizeNumberString(key === 'mpi' ? sanitized : scrapQuantities.mpi)) || 0));
+    const em = Math.max(0, dr - (Number(sanitizeNumberString(key === 'drift' ? sanitized : scrapQuantities.drift)) || 0));
+
+    const allowed: Record<ScrapKey, number> = {
+      rattling: r,
+      external: ext,
+      jetting: hyd,
+      mpi: mp,
+      drift: dr,
+      emi: em,
+    };
+    if (sanitized !== "") {
+      const num = Number(sanitized);
+      if (Number.isFinite(num) && num > allowed[key]) {
+        toast({ title: "Ошибка", description: "Scrap не может превышать количество на текущем этапе", variant: "destructive" });
+        return;
+      }
+    }
     setScrapQuantities(prev => ({ ...prev, [key]: sanitized }));
   };
 
@@ -246,37 +283,24 @@ export default function InspectionEdit() {
   }, [computedScrapTotal, scrapQuantities, scrapValue]);
 
   const calculatedStageQuantities = useMemo(() => {
-    const result: Record<StageKey, string> = {
-      rattling: "",
-      external: "",
-      hydro: "",
-      mpi: "",
-      drift: "",
-      emi: "",
-      marking: ""
-    };
-
-    for (const stage of STAGE_META) {
-      const baseRaw = baseStageQuantities[stage.key] ?? "";
-      const baseNumeric = Number(sanitizeNumberString(baseRaw));
-      const hasValidBase = baseRaw !== "" && Number.isFinite(baseNumeric);
-
-      if (stage.scrapKey) {
-        const scrapRaw = scrapQuantities[stage.scrapKey] ?? "";
-        const scrapNumeric = Number(sanitizeNumberString(scrapRaw));
-        if (hasValidBase) {
-          const computed = Math.max(0, baseNumeric - (Number.isFinite(scrapNumeric) ? scrapNumeric : 0));
-          result[stage.key] = computed.toString();
-        } else {
-          result[stage.key] = baseRaw;
-        }
-      } else {
-        result[stage.key] = baseRaw;
-      }
-    }
-
-    return result;
-  }, [baseStageQuantities, scrapQuantities]);
+    // Recalculate from effective qty and current scraps to reflect any qty changes
+    const r = effectiveQty || 0;
+    const ext = Math.max(0, r - (Number(sanitizeNumberString(scrapQuantities.rattling)) || 0));
+    const hyd = Math.max(0, ext - (Number(sanitizeNumberString(scrapQuantities.external)) || 0));
+    const mp = Math.max(0, hyd - (Number(sanitizeNumberString(scrapQuantities.jetting)) || 0));
+    const dr = Math.max(0, mp - (Number(sanitizeNumberString(scrapQuantities.mpi)) || 0));
+    const em = Math.max(0, dr - (Number(sanitizeNumberString(scrapQuantities.drift)) || 0));
+    const mark = Math.max(0, em - (Number(sanitizeNumberString(scrapQuantities.emi)) || 0));
+    return {
+      rattling: r.toString(),
+      external: ext.toString(),
+      hydro: hyd.toString(),
+      mpi: mp.toString(),
+      drift: dr.toString(),
+      emi: em.toString(),
+      marking: mark.toString(),
+    } as Record<StageKey, string>;
+  }, [effectiveQty, scrapQuantities]);
 
 
   const handleUpdate = async () => {
@@ -297,17 +321,52 @@ export default function InspectionEdit() {
       });
       return;
     }
+    // Validate classes/repair and scrap totals against batch qty
+    const n = (v: string) => Number(sanitizeNumberString(v)) || 0;
+    const qtyNum = effectiveQty || 0;
+    const totalScrapNow = computedScrapTotal;
+    const totalClasses = n(class1) + n(class2) + n(class3) + n(repair);
+    if (totalClasses + totalScrapNow !== qtyNum) {
+      toast({ title: "Ошибка", description: "Сумма Class1 + Class2 + Class3 + Repair + Scrap должна равняться Qty батча", variant: "destructive" });
+      return;
+    }
+    // Per-stage scrap must not exceed available quantities (handles qty changes)
+    const allowedMap: Record<ScrapKey, number> = {
+      rattling: Number(calculatedStageQuantities.rattling) || 0,
+      external: Number(calculatedStageQuantities.external) || 0,
+      jetting: Number(calculatedStageQuantities.hydro) || 0,
+      mpi: Number(calculatedStageQuantities.mpi) || 0,
+      drift: Number(calculatedStageQuantities.drift) || 0,
+      emi: Number(calculatedStageQuantities.emi) || 0,
+    };
+    for (const key of Object.keys(scrapQuantities) as ScrapKey[]) {
+      const val = n(scrapQuantities[key]);
+      if (val > allowedMap[key]) {
+        toast({ title: "Ошибка", description: "Scrap Qty exceeds new Qty. Change it to continue.", variant: "destructive" });
+        return;
+      }
+    }
+    setConfirmLines([
+      `Client: ${record.client}`,
+      `WO: ${record.wo_no}`,
+      `Batch: ${record.batch}`
+    ]);
+    setIsConfirmOpen(true);
+  };
 
+  const doUpdate = async () => {
+    if (!record || !sharePointService) return;
     setIsSaving(true);
     try {
+      const num = (v: string) => Number(sanitizeNumberString(v)) || 0;
       const success = await sharePointService.updateTubingInspectionData({
         client: record.client,
         wo_no: record.wo_no,
         batch: record.batch,
-        class_1: class1,
-        class_2: class2,
-        class_3: class3,
-        repair,
+        class_1: String(num(class1)),
+        class_2: String(num(class2)),
+        class_3: String(num(class3)),
+        repair: String(num(repair)),
         start_date: startDate,
         end_date: endDate,
         rattling_qty: Number(calculatedStageQuantities.rattling || 0),
@@ -337,7 +396,12 @@ export default function InspectionEdit() {
         try { safeLocalStorage.removeItem("sharepoint_last_refresh"); } catch {}
       });
       await refreshDataInBackground(sharePointService);
-      navigate("/edit-records");
+      const statusNorm = (record.status || "").toLowerCase();
+      if (statusNorm.includes("completed")) {
+        navigate("/load-out-edit", { state: { client: record.client, wo_no: record.wo_no, batch: record.batch } });
+      } else {
+        navigate("/edit-records");
+      }
     } catch (error) {
       console.error("Failed to update inspection data", error);
       toast({
@@ -347,6 +411,7 @@ export default function InspectionEdit() {
       });
     } finally {
       setIsSaving(false);
+      setIsConfirmOpen(false);
     }
   };
 
@@ -367,6 +432,17 @@ export default function InspectionEdit() {
           </div>
         </div>
 
+        <ConfirmDialog
+          open={isConfirmOpen}
+          title="Update Inspection?"
+          description="Confirm saving changes for this batch"
+          lines={confirmLines}
+          confirmText="Save"
+          cancelText="Cancel"
+          onConfirm={doUpdate}
+          onCancel={() => setIsConfirmOpen(false)}
+          loading={isSaving}
+        />
         {missingSelection || !record ? (
           <Card className="border-2 border-dashed border-blue-200 bg-white">
             <CardContent className="p-6 text-center text-sm text-blue-700">
@@ -375,12 +451,12 @@ export default function InspectionEdit() {
           </Card>
         ) : (
           <div className="grid gap-5 lg:grid-cols-[1.1fr,1fr]">
-            <Card className="border-2 border-blue-200 shadow-sm">
-              <CardHeader className="border-b bg-white/80">
+            <Card className="border-2 border-blue-200 rounded-xl shadow-md">
+              <CardHeader className="border-b bg-blue-50">
                 <CardTitle className="text-xl font-semibold text-blue-900">Inspection Stages</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4 p-5">
-                <div className="grid gap-3 rounded-xl border border-blue-100 bg-blue-50/70 p-3 md:grid-cols-4">
+                <div className="grid gap-3 rounded-xl border border-blue-100 bg-white p-3 md:grid-cols-4">
                   <div>
                     <p className="text-xs uppercase tracking-wide text-blue-700">Client</p>
                     <p className="text-base font-semibold text-blue-900">{record.client}</p>
@@ -395,7 +471,7 @@ export default function InspectionEdit() {
                   </div>
                   <div>
                     <p className="text-xs uppercase tracking-wide text-blue-700">Quantity</p>
-                    <p className="text-base font-semibold text-blue-900">{record.qty || "0"}</p>
+                    <p className="text-base font-semibold text-blue-900">{String(effectiveQty)}</p>
                   </div>
                 </div>
 
@@ -442,9 +518,9 @@ export default function InspectionEdit() {
               </CardContent>
             </Card>
 
-            <Card className="border-2 border-emerald-200 shadow-sm">
-              <CardHeader className="border-b bg-white/80">
-                <CardTitle className="text-xl font-semibold text-emerald-900">Inspection Data</CardTitle>
+            <Card className="border-2 border-blue-200 rounded-xl shadow-md">
+              <CardHeader className="border-b bg-blue-50">
+                <CardTitle className="text-xl font-semibold text-blue-900">Inspection Data</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4 p-5">
                 <div className="grid gap-3 md:grid-cols-2">
@@ -471,7 +547,7 @@ export default function InspectionEdit() {
                   <DateInputField label="End Date" value={endDate} onChange={setEndDate} />
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-[2fr,1fr]">
+                <div className="grid gap-3 md:grid-cols-1">
                   <div className="space-y-2">
                     <Label htmlFor="scrap">Scrap</Label>
                     <Input
@@ -483,15 +559,11 @@ export default function InspectionEdit() {
                       className="h-9 bg-slate-100"
                     />
                   </div>
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-2 text-sm text-emerald-800">
-                    <p className="font-semibold">Computed Scrap</p>
-                    <p>{computedScrapTotal}</p>
-                  </div>
                 </div>
 
                 <div className="flex justify-end gap-3">
                   <Button variant="destructive" onClick={handleCancel} className="min-w-[120px]">Cancel</Button>
-                  <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[140px]">
+                  <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[140px] bg-blue-600 hover:bg-blue-700 text-white">
                     {isSaving ? "Saving..." : "Save"}
                   </Button>
                 </div>

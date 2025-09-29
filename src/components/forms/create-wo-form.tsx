@@ -192,7 +192,7 @@ export function CreateWOForm({ onSubmit, isLoading = false }: CreateWOFormProps)
             </div>
 
             <div className="flex justify-end space-x-4">
-              <Button type="button" variant="outline">
+              <Button type="button" variant="destructive">
                 Cancel
               </Button>
               <Button type="submit" disabled={isLoading}>

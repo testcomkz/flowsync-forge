@@ -325,24 +325,24 @@ export default function LoadOut() {
     !!actDate;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-slate-50">
       <Header />
       <div className="container mx-auto px-4 py-6">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-          <Button variant="outline" onClick={() => navigate("/")} className="flex items-center gap-2">
+          <Button variant="ghost" onClick={() => navigate("/")} className="flex items-center gap-2 text-slate-600">
             <ArrowLeft className="h-4 w-4" />
             <span>Back to Dashboard</span>
           </Button>
-          <div className="flex items-center gap-2 text-gray-600">
+          <div className="flex items-center gap-2 text-blue-600">
             <Truck className="h-5 w-5" />
             <span>Load Out</span>
           </div>
         </div>
 
         <form onSubmit={handleSave}>
-          <Card className="mx-auto max-w-3xl border-sky-100 shadow-sm">
-            <CardHeader className="border-b border-sky-100 pb-4">
-              <CardTitle className="text-lg font-semibold text-sky-900">Finalize Batch Load Out</CardTitle>
+          <Card className="mx-auto max-w-3xl border-2 border-blue-200 rounded-xl shadow-md">
+            <CardHeader className="border-b bg-blue-50 pb-4">
+              <CardTitle className="text-lg font-semibold text-blue-900">Finalize Batch Load Out</CardTitle>
             </CardHeader>
             <CardContent className="space-y-5 pt-4">
               {!isConnected && (
@@ -352,7 +352,7 @@ export default function LoadOut() {
               )}
 
               {loadOutRows.length === 0 ? (
-                <div className="rounded-md border border-muted bg-muted/20 p-4 text-center text-sm text-muted-foreground">
+                <div className="rounded-md border border-blue-200 bg-white p-4 text-center text-sm text-blue-700">
                   Нет партий со статусом Inspection Done, доступных для Load Out.
                 </div>
               ) : (
@@ -466,7 +466,7 @@ export default function LoadOut() {
               <div className="text-sm text-muted-foreground">
                 Выбранная партия будет переведена в статус Completed.
               </div>
-              <Button type="submit" disabled={!canSave || isSaving}>
+              <Button type="submit" disabled={!canSave || isSaving} className="bg-blue-600 hover:bg-blue-700 text-white">
                 {isSaving ? "Saving..." : "Save"}
               </Button>
             </CardFooter>

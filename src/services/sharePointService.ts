@@ -16,6 +16,51 @@ export class SharePointService {
     this.graphClient = Client.initWithMiddleware({ authProvider });
   }
 
+  async getWorkOrderRecord(client: string, wo_no: string): Promise<Record<string, any> | null> {
+    try {
+      const usedInfo = await this.getUsedRangeInfo('wo');
+      if (!usedInfo?.values?.length) return null;
+
+      const { values } = usedInfo;
+      const headersRow = Array.isArray(values[0]) ? (values[0] as unknown[]) : [];
+
+      const normalize = (value: unknown) => (value === null || value === undefined ? '' : String(value).trim().toLowerCase());
+      const canonicalize = (header: string) => header.replace(/[^a-z0-9]+/g, '_').replace(/_{2,}/g, '_').replace(/^_|_$/g, '');
+
+      const findColumn = (matcher: (header: string, canonical?: string) => boolean) =>
+        headersRow.findIndex(header => {
+          const normalizedHeader = normalize(header);
+          const canonicalHeader = canonicalize(normalizedHeader);
+          return matcher(normalizedHeader, canonicalHeader);
+        });
+
+      const clientIndex = findColumn(header => header.includes('client'));
+      const woIndex = findColumn(header => header.includes('wo') && !header.includes('workorderdate'));
+
+      const rowIndex = values.findIndex((row, idx) => {
+        if (idx === 0) return false;
+        return (
+          clientIndex !== -1 && woIndex !== -1 &&
+          normalize(row[clientIndex]) === normalize(client) &&
+          normalize(row[woIndex]) === normalize(wo_no)
+        );
+      });
+
+      if (rowIndex === -1) return null;
+
+      const row = values[rowIndex] as unknown[];
+      const result: Record<string, any> = {};
+      headersRow.forEach((header, idx) => {
+        const canonical = canonicalize(normalize(header));
+        result[canonical] = row[idx];
+      });
+      return result;
+    } catch (error) {
+      console.error('❌ Error fetching work order record:', error);
+      return null;
+    }
+  }
+
   // Read a range (values and formulas) from Excel
   private async readExcelRange(worksheetName: string, range: string): Promise<{ values?: any[][]; formulas?: any[][] } | null> {
     try {
@@ -549,7 +594,7 @@ export class SharePointService {
           console.log(`   ✅ Planned Qty column: ${data.planned_qty}`);
           return data.planned_qty || '';
         }
-        if (canonical.includes('price_type')) {
+        if (canonical.includes('price_type') || canonical === 'pricetype') {
           console.log(`   ✅ Price Type column: ${data.price_type}`);
           return data.price_type || (data.wo_type === 'Coupling Replace' ? 'Coupling Replace' : '');
         }
@@ -633,6 +678,21 @@ export class SharePointService {
     key_col?: string;
     payer?: string;
     planned_qty?: string;
+    // Extended fields to support full WO editing
+    wo_type?: string;
+    price_type?: string;
+    price_per_pipe?: string;
+    replacement_price?: string;
+    transport_cost?: string;
+    stage_prices?: {
+      rattling_price?: string;
+      external_price?: string;
+      hydro_price?: string;
+      mpi_price?: string;
+      drift_price?: string;
+      emi_price?: string;
+      marking_price?: string;
+    };
   }): Promise<boolean> {
     try {
       const usedInfo = await this.getUsedRangeInfo('wo');
@@ -696,22 +756,38 @@ export class SharePointService {
       const updates = new Map<number, any>();
 
       const applyValue = (predicate: (header: string, canonical?: string) => boolean, value: unknown) => {
+        // Skip if value is undefined so we don't accidentally blank out cells the caller didn't intend to change
+        if (value === undefined) return;
         const columnIndex = findColumn(predicate);
         if (columnIndex !== -1) {
-          updates.set(columnIndex, value ?? '');
+          updates.set(columnIndex, value);
         }
       };
 
       applyValue(header => header.includes('client'), data.client);
       applyValue(header => header.includes('wo') && !header.includes('workorderdate'), data.wo_no);
-      applyValue(header => header.includes('type'), data.type ?? '');
-      applyValue(header => header.includes('diameter') || header.includes('диаметр'), data.diameter ?? '');
-      applyValue(header => header.includes('coupling'), data.coupling_replace ?? '');
-      applyValue(header => header.includes('date'), data.wo_date ?? '');
-      applyValue(header => header.includes('transport'), data.transport ?? '');
-      applyValue(header => header.includes('key'), data.key_col ?? '');
-      applyValue(header => header.includes('payer') || header.includes('branch'), data.payer ?? '');
-      applyValue(header => header.includes('qty') || header.includes('quantity'), data.planned_qty ?? '');
+      applyValue(header => header.includes('type'), data.type);
+      applyValue(header => header.includes('diameter') || header.includes('диаметр'), data.diameter);
+      applyValue(header => header.includes('coupling'), data.coupling_replace);
+      applyValue(header => header.includes('date'), data.wo_date);
+      applyValue(header => header.includes('transport') && !header.includes('cost'), data.transport);
+      applyValue(header => header.includes('key'), data.key_col);
+      applyValue(header => header.includes('payer') || header.includes('branch'), data.payer);
+      applyValue(header => header.includes('qty') || header.includes('quantity'), data.planned_qty);
+      // Extended fields
+      applyValue((header, canonical) => canonical === 'wo_type' || canonical?.includes('type_of_wo'), data.wo_type);
+      applyValue((header, canonical) => canonical === 'pricetype' || canonical?.includes('price_type'), data.price_type);
+      applyValue((header, canonical) => canonical === 'price' || canonical?.includes('price_for_each_pipe'), data.price_per_pipe);
+      applyValue((header, canonical) => canonical?.includes('replacement') && canonical?.includes('price'), data.replacement_price);
+      applyValue((header, canonical) => canonical?.includes('transport') && canonical?.includes('cost'), data.transport_cost);
+      // Stage-based prices
+      applyValue((header, canonical) => canonical?.includes('rattling') && canonical?.includes('price'), data.stage_prices?.rattling_price);
+      applyValue((header, canonical) => canonical?.includes('external') && canonical?.includes('price'), data.stage_prices?.external_price);
+      applyValue((header, canonical) => canonical?.includes('hydro') && canonical?.includes('price'), data.stage_prices?.hydro_price);
+      applyValue((header, canonical) => canonical?.includes('mpi') && canonical?.includes('price'), data.stage_prices?.mpi_price);
+      applyValue((header, canonical) => canonical?.includes('drift') && canonical?.includes('price'), data.stage_prices?.drift_price);
+      applyValue((header, canonical) => canonical?.includes('emi') && canonical?.includes('price'), data.stage_prices?.emi_price);
+      applyValue((header, canonical) => canonical?.includes('marking') && canonical?.includes('price'), data.stage_prices?.marking_price);
 
       if (updates.size === 0) {
         console.warn('⚠️ No matching columns found to update for work order');
@@ -780,6 +856,85 @@ export class SharePointService {
       return overallSuccess;
     } catch (error) {
       console.error('❌ Error updating work order in Excel:', error);
+      return false;
+    }
+  }
+
+  async updateClientRecord(data: { originalName: string; name?: string; payer?: string }): Promise<boolean> {
+    try {
+      const clientSheet = await this.resolveClientWorksheetName();
+      const usedInfo = await this.getUsedRangeInfo(clientSheet);
+      if (!usedInfo?.values?.length) return false;
+
+      const { values, meta } = usedInfo;
+      const headers = Array.isArray(values[0]) ? (values[0] as unknown[]) : [];
+
+      const normalize = (value: unknown) => (value === null || value === undefined ? '' : String(value).trim().toLowerCase());
+      const canonicalize = (value: string) => value.replace(/[^a-z0-9]+/g, '_').replace(/_{2,}/g, '_').replace(/^_|_$/g, '');
+      const canonicalHeaders = headers.map(h => canonicalize(normalize(h)));
+
+      const clientIndex = canonicalHeaders.findIndex(h => h === 'client' || h.endsWith('_client'));
+      const payerIndex = canonicalHeaders.findIndex(h => h.includes('payer') || h.includes('branch'));
+
+      if (clientIndex === -1 && payerIndex === -1) {
+        console.warn('⚠️ Client sheet columns not found for update');
+        return false;
+      }
+
+      const rowIndex = values.findIndex((row, idx) => idx !== 0 && normalize(row[clientIndex]) === normalize(data.originalName));
+      if (rowIndex === -1) {
+        console.warn('⚠️ Client row not found for update:', data.originalName);
+        return false;
+      }
+
+      const updates = new Map<number, any>();
+      if (data.name !== undefined && clientIndex !== -1) updates.set(clientIndex, data.name);
+      if (data.payer !== undefined && payerIndex !== -1) updates.set(payerIndex, data.payer);
+      if (updates.size === 0) return true;
+
+      const sorted = Array.from(updates.keys()).sort((a, b) => a - b);
+      const rowNumber = meta.startRow + rowIndex;
+
+      type Segment = { start: number; end: number; values: any[] };
+      const segments: Segment[] = [];
+      let sStart: number | null = null;
+      let sEnd: number | null = null;
+      let sValues: any[] = [];
+
+      for (const idx of sorted) {
+        const value = updates.get(idx);
+        if (sStart === null) {
+          sStart = idx; sEnd = idx; sValues = [value];
+          continue;
+        }
+        if (sEnd !== null && idx === sEnd + 1) {
+          sEnd = idx; sValues.push(value);
+        } else {
+          segments.push({ start: sStart, end: sEnd ?? sStart, values: sValues });
+          sStart = idx; sEnd = idx; sValues = [value];
+        }
+      }
+      if (sStart !== null) segments.push({ start: sStart, end: sEnd ?? sStart, values: sValues });
+
+      let ok = true;
+      for (const seg of segments) {
+        const startCol = this.indexToColLetters(meta.startCol + seg.start);
+        const endCol = this.indexToColLetters(meta.startCol + seg.end);
+        const range = startCol === endCol ? `${startCol}${rowNumber}` : `${startCol}${rowNumber}:${endCol}${rowNumber}`;
+        const success = await this.writeExcelData(clientSheet, range, [seg.values.slice()]);
+        if (!success) { ok = false; break; }
+      }
+
+      if (ok) {
+        safeLocalStorage.removeItem('sharepoint_cached_clients');
+        safeLocalStorage.removeItem('sharepoint_cached_clients_timestamp');
+        safeLocalStorage.removeItem('sharepoint_cached_client_records');
+        safeLocalStorage.removeItem('sharepoint_cached_client_records_timestamp');
+      }
+
+      return ok;
+    } catch (error) {
+      console.error('❌ Error updating client record:', error);
       return false;
     }
   }

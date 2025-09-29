@@ -122,6 +122,16 @@ export default function LoadOutEdit() {
       return;
     }
 
+    const confirmMsg = [
+      'Are you sure you want to update Load Out?',
+      `Client: ${record.client}`,
+      `WO: ${record.wo_no}`,
+      `Batch: ${record.batch}`
+    ].join('\n');
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+
     setIsSaving(true);
     try {
       const success = await sharePointService.updateLoadOutData({
@@ -177,39 +187,39 @@ export default function LoadOutEdit() {
             <ArrowLeft className="h-4 w-4" />
             Back to Edit Records
           </Button>
-          <div className="flex items-center gap-2 text-sm text-emerald-600">
+          <div className="flex items-center gap-2 text-sm text-blue-600">
             <CheckCircle2 className="h-4 w-4" />
             Load Out Edit
           </div>
         </div>
 
-        <Card className="border-2 border-emerald-200 shadow-sm">
-          <CardHeader className="border-b bg-white/80">
-            <CardTitle className="text-xl font-semibold text-emerald-900">Finalize Load Out</CardTitle>
+        <Card className="border-2 border-blue-200 rounded-xl shadow-md">
+          <CardHeader className="border-b bg-blue-50">
+            <CardTitle className="text-xl font-semibold text-blue-900">Finalize Load Out</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5 p-5">
             {missingSelection || !record ? (
-              <div className="rounded-lg border border-dashed border-emerald-300 bg-white p-6 text-center text-sm text-emerald-700">
+              <div className="rounded-lg border border-dashed border-blue-300 bg-white p-6 text-center text-sm text-blue-700">
                 Batch details not found. Please return to Edit Records and select a batch.
               </div>
             ) : (
               <>
-                <div className="grid gap-4 rounded-xl border border-emerald-100 bg-emerald-50/70 p-4 md:grid-cols-4">
+                <div className="grid gap-4 rounded-xl border border-blue-100 bg-white p-4 md:grid-cols-4">
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-emerald-700">Client</p>
-                    <p className="text-base font-semibold text-emerald-900">{record.client}</p>
+                    <p className="text-xs uppercase tracking-wide text-blue-700">Client</p>
+                    <p className="text-base font-semibold text-blue-900">{record.client}</p>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-emerald-700">Work Order</p>
-                    <p className="text-base font-semibold text-emerald-900">{record.wo_no}</p>
+                    <p className="text-xs uppercase tracking-wide text-blue-700">Work Order</p>
+                    <p className="text-base font-semibold text-blue-900">{record.wo_no}</p>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-emerald-700">Batch</p>
-                    <p className="text-base font-semibold text-emerald-900">{record.batch}</p>
+                    <p className="text-xs uppercase tracking-wide text-blue-700">Batch</p>
+                    <p className="text-base font-semibold text-blue-900">{record.batch}</p>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-emerald-700">Quantity</p>
-                    <p className="text-base font-semibold text-emerald-900">{record.qty || "0"}</p>
+                    <p className="text-xs uppercase tracking-wide text-blue-700">Quantity</p>
+                    <p className="text-base font-semibold text-blue-900">{record.qty || "0"}</p>
                   </div>
                 </div>
 
@@ -236,7 +246,7 @@ export default function LoadOutEdit() {
 
                 <div className="flex justify-end gap-3">
                   <Button variant="destructive" onClick={handleCancel} className="min-w-[120px]">Cancel</Button>
-                  <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[140px]">
+                  <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[140px] bg-blue-600 hover:bg-blue-700 text-white">
                     {isSaving ? "Updating..." : "Update"}
                   </Button>
                 </div>

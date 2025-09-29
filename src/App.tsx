@@ -6,6 +6,10 @@ import { MainDashboard } from "./components/dashboard/MainDashboard";
 import TubingForm from "./pages/TubingForm";
 import WOForm from "./pages/WOForm";
 import EditRecords from "./pages/EditRecords";
+import BatchEdit from "./pages/BatchEdit";
+import WorkOrderEditSelect from "./pages/WorkOrderEditSelect";
+import EditClients from "./pages/EditClients";
+import WorkOrderEdit from "./pages/WorkOrderEdit";
 import SharePointViewer from "./pages/SharePointViewer";
 import InspectionData from "./pages/InspectionData";
 import LoadOut from "./pages/LoadOut";
@@ -39,6 +43,22 @@ const router = createBrowserRouter([
   {
     path: "/edit-records",
     element: <EditRecords />,
+  },
+  {
+    path: "/batch-edit",
+    element: <BatchEdit />,
+  },
+  {
+    path: "/edit-clients",
+    element: <EditClients />,
+  },
+  {
+    path: "/workorder-edit-select",
+    element: <WorkOrderEditSelect />,
+  },
+  {
+    path: "/workorder-edit",
+    element: <WorkOrderEdit />,
   },
   {
     path: "/sharepoint-viewer",

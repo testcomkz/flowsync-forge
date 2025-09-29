@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useSharePointInstantData } from "@/hooks/useInstantData";
 import { DateInputField } from "@/components/ui/date-input";
 import { safeLocalStorage } from "@/lib/safe-storage";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 const stagePriceFields = [
   { key: "rattling_price", label: "Item: 1.7 Rattling_Price" },
@@ -40,20 +41,31 @@ const createEmptyStagePrices = (): StagePrices => ({
 const sanitizeDecimalInput = (input: string): string => {
   if (!input) return "";
   const normalized = input.replace(/,/g, ".");
-  const allowed = normalized.replace(/[^0-9.]/g, "");
-  const parts = allowed.split(".");
+  // remove all except digits and dots
+  const filtered = normalized.replace(/[^0-9.]/g, "");
+
+  // handle inputs that start with a dot like ".5" -> "0.5"
+  if (filtered.startsWith(".") && filtered !== ".") {
+    const after = filtered.slice(1).replace(/\./g, "");
+    return after ? `0.${after}` : "0.";
+  }
+
+  // split by dots to collapse multiples into a single decimal point
+  const parts = filtered.split(".");
   if (parts.length === 1) {
     return parts[0];
   }
+
   const first = parts.shift() ?? "";
   const rest = parts.join("");
-  if (!first && !rest) {
-    return "";
+
+  // preserve a single trailing dot while user is typing, e.g. "245." should remain as-is
+  const hasTrailingDotOnly = filtered.endsWith(".") && rest.length === 0;
+  if (hasTrailingDotOnly) {
+    return first + ".";
   }
-  if (!first && rest) {
-    return `0.${rest}`;
-  }
-  return rest ? `${first}.${rest}` : first;
+
+  return first + (rest ? "." + rest : "");
 };
 
 const sanitizeIntegerInput = (input: string): string => input.replace(/[^0-9]/g, "");
@@ -76,6 +88,9 @@ export default function WOForm() {
 
   const [existingWorkOrders, setExistingWorkOrders] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [confirmLines, setConfirmLines] = useState<string[]>([]);
+  const [pending, setPending] = useState<{ payload: any; trimmedWo: string } | null>(null);
   const [formData, setFormData] = useState({
     wo_no: "",
     client: "",
@@ -89,7 +104,6 @@ export default function WOForm() {
     stage_prices: createEmptyStagePrices(),
     transport: "",
     transport_cost: "",
-    payer: "",
     replacement_price: "",
   });
 
@@ -112,20 +126,14 @@ export default function WOForm() {
     loadWorkOrders();
   }, [formData.client, sharePointService]);
 
-  useEffect(() => {
-    if (!formData.client) {
-      if (formData.payer) {
-        setFormData(prev => ({ ...prev, payer: "" }));
-      }
-      return;
-    }
+  // Removed Payer auto-fill logic per requirement: Payer is managed only in Add Clients / Client Edits
 
-    const record = clientRecords.find(item => item.name === formData.client);
-    const payer = record?.payer ?? "";
-    if (payer !== formData.payer) {
-      setFormData(prev => ({ ...prev, payer }));
+  // When Sucker Rod is selected, Diameter is not applicable -> clear it
+  useEffect(() => {
+    if (formData.pipe_type === "Sucker Rod" && formData.diameter) {
+      setFormData(prev => ({ ...prev, diameter: "" }));
     }
-  }, [formData.client, formData.payer, clientRecords]);
+  }, [formData.pipe_type, formData.diameter]);
 
   const handleFieldChange = (field: keyof typeof formData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -214,7 +222,7 @@ export default function WOForm() {
         return;
       }
 
-      if (!formData.diameter) {
+      if (formData.pipe_type !== "Sucker Rod" && !formData.diameter) {
         toast({
           title: "Ошибка валидации",
           description: "Выберите Diameter",
@@ -321,10 +329,25 @@ export default function WOForm() {
       stage_prices: isOctgInspection && isStageBasedPricing ? formData.stage_prices : createEmptyStagePrices(),
       transport: isOctgInspection ? formData.transport : "",
       transport_cost: isOctgInspection && formData.transport === "TCC" ? formData.transport_cost : "",
-      payer: formData.payer,
       replacement_price: isCouplingReplace ? formData.replacement_price : "",
       coupling_replace: isCouplingReplace ? "Yes" : "No",
     };
+    // Open in-page confirm dialog
+    setConfirmLines([
+      `Client: ${formData.client}`,
+      `WO No: ${trimmedWo}`,
+      `Type of WO: ${formData.wo_type || (isCouplingReplace ? 'Coupling Replace' : 'OCTG Inspection')}`,
+    ]);
+    setPending({ payload, trimmedWo });
+    setIsConfirmOpen(true);
+  };
+
+  const doSave = async () => {
+    if (!sharePointService || !pending) {
+      setIsConfirmOpen(false);
+      return;
+    }
+    const { payload, trimmedWo } = pending;
 
     setIsLoading(true);
     try {
@@ -349,7 +372,7 @@ export default function WOForm() {
         const preservedPipeType = preservedWoType === "Coupling Replace" ? "Tubing" : formData.pipe_type;
         const preservedDiameter = preservedWoType === "OCTG Inspection" ? formData.diameter : "";
         const preservedPriceType = preservedWoType === "OCTG Inspection" ? formData.price_type : "";
-        const preservedPayer = formData.payer;
+        // Payer not part of Add Work Order form anymore
 
         setFormData({
           wo_no: "",
@@ -364,7 +387,6 @@ export default function WOForm() {
           stage_prices: createEmptyStagePrices(),
           transport: "",
           transport_cost: "",
-          payer: preservedPayer,
           replacement_price: "",
         });
         resetStagePrices();
@@ -404,6 +426,8 @@ export default function WOForm() {
       });
     } finally {
       setIsLoading(false);
+      setIsConfirmOpen(false);
+      setPending(null);
     }
   };
 
@@ -413,20 +437,31 @@ export default function WOForm() {
       <div className="container mx-auto px-6 py-8">
         <div className="mb-6">
           <Button
-            variant="outline"
+            variant="ghost"
             onClick={() => navigate("/")}
-            className="flex items-center space-x-2 border-2 hover:bg-gray-50"
+            className="flex items-center gap-2 text-slate-600"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Back to Dashboard</span>
           </Button>
         </div>
 
-        <Card className="max-w-5xl mx-auto border-2 shadow-lg">
-          <CardHeader className="bg-blue-50 border-b-2">
+        <Card className="max-w-5xl mx-auto border-2 border-blue-200 rounded-xl shadow-md">
+          <CardHeader className="bg-blue-50 border-b">
             <CardTitle className="text-2xl font-bold text-blue-800">Add Work Order</CardTitle>
           </CardHeader>
           <CardContent className="p-6">
+            <ConfirmDialog
+              open={isConfirmOpen}
+              title="Save Work Order?"
+              description="Please confirm saving this Work Order to SharePoint"
+              lines={confirmLines}
+              confirmText="Save"
+              cancelText="Cancel"
+              onConfirm={doSave}
+              onCancel={() => setIsConfirmOpen(false)}
+              loading={isLoading}
+            />
             <form onSubmit={handleSubmit} className="space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
@@ -448,9 +483,10 @@ export default function WOForm() {
                   <Input
                     id="wo_no"
                     value={formData.wo_no}
-                    onChange={(e) => handleFieldChange("wo_no", e.target.value)}
+                    onChange={(e) => handleFieldChange("wo_no", sanitizeIntegerInput(e.target.value))}
                     placeholder="Enter WO number"
                     className="border-2 focus:border-blue-500 h-11"
+                    inputMode="numeric"
                     required
                   />
                 </div>
@@ -463,7 +499,6 @@ export default function WOForm() {
                     onChange={(value) => handleFieldChange("wo_date", value)}
                     className="border-2 focus:border-blue-500 h-11"
                     placeholder="dd/mm/yyyy"
-                    required
                   />
                 </div>
 
@@ -493,21 +528,8 @@ export default function WOForm() {
                       <SelectItem value="Coupling Replace">Coupling Replace</SelectItem>
                     </SelectContent>
                   </Select>
-                </div>
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label htmlFor="payer" className="text-sm font-semibold text-gray-700">Payer</Label>
-                  <Input
-                    id="payer"
-                    value={formData.payer}
-                    readOnly
-                    placeholder="Auto-filled from Client list"
-                    className="h-11 w-full rounded-md border border-gray-300 bg-gray-100 px-3 text-gray-600 shadow-sm"
-                  />
-                </div>
-              </div>
+            </div>
 
               {isOctgInspection && (
                 <div className="space-y-8">
@@ -516,7 +538,12 @@ export default function WOForm() {
                       <Label htmlFor="pipe_type" className="text-sm font-semibold text-gray-700">Type Of Pipe</Label>
                       <Select
                         value={formData.pipe_type}
-                        onValueChange={(value) => handleFieldChange("pipe_type", value)}
+                        onValueChange={(value) => {
+                          handleFieldChange("pipe_type", value);
+                          if (value === "Sucker Rod") {
+                            handleFieldChange("diameter", "");
+                          }
+                        }}
                       >
                         <SelectTrigger className="border-2 focus:border-blue-500 h-11">
                           <SelectValue placeholder="Select type of pipe" />
@@ -527,15 +554,15 @@ export default function WOForm() {
                         </SelectContent>
                       </Select>
                     </div>
-
                     <div className="space-y-2">
                       <Label htmlFor="diameter" className="text-sm font-semibold text-gray-700">Diameter</Label>
                       <Select
                         value={formData.diameter}
                         onValueChange={(value) => handleFieldChange("diameter", value)}
+                        disabled={formData.pipe_type === "Sucker Rod"}
                       >
                         <SelectTrigger className="border-2 focus:border-blue-500 h-11">
-                          <SelectValue placeholder="Select diameter" />
+                          <SelectValue placeholder={formData.pipe_type === "Sucker Rod" ? "N/A for Sucker Rod" : "Select diameter"} />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value='3 1/2"'>3 1/2"</SelectItem>
@@ -543,7 +570,6 @@ export default function WOForm() {
                         </SelectContent>
                       </Select>
                     </div>
-
                     <div className="space-y-2">
                       <Label htmlFor="planned_qty" className="text-sm font-semibold text-gray-700">Planned Qty</Label>
                       <Input
@@ -555,7 +581,6 @@ export default function WOForm() {
                         inputMode="numeric"
                       />
                     </div>
-
                     <div className="space-y-2">
                       <Label htmlFor="price_type" className="text-sm font-semibold text-gray-700">Price Type</Label>
                       <Select
@@ -638,7 +663,6 @@ export default function WOForm() {
                         </SelectContent>
                       </Select>
                     </div>
-
                     {formData.transport === "TCC" && (
                       <div className="space-y-2">
                         <Label htmlFor="transport_cost" className="text-sm font-semibold text-gray-700">Transportation Cost</Label>
@@ -677,13 +701,12 @@ export default function WOForm() {
                       className="border-2 focus:border-blue-500 h-11"
                       inputMode="decimal"
                     />
-                    <p className="text-xs text-blue-600 font-medium">Цена попадёт в столбец Price для Coupling Replace</p>
                   </div>
                 </div>
               )}
 
               <div className="flex justify-end space-x-4 pt-6 border-t-2 border-gray-100">
-                <Button type="button" variant="outline" onClick={() => navigate("/")} className="border-2 h-12 px-6">
+                <Button type="button" variant="destructive" onClick={() => navigate("/")} className="h-12 px-6">
                   Cancel
                 </Button>
                 <Button type="submit" className="h-12 px-6 font-semibold" disabled={isLoading || !isConnected}>
