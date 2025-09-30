@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { SharePointService, ClientRecord } from '@/services/sharePointService';
 import { authService } from '@/services/authService';
 import { safeLocalStorage } from '@/lib/safe-storage';
+import { supabaseRealtimeService } from '@/services/supabaseRealtimeService';
 
 interface SharePointContextType {
   isConnected: boolean;
@@ -177,6 +178,27 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
     };
 
     checkStoredAuth();
+
+    // Подключаемся к Supabase Realtime для автоматических обновлений
+    supabaseRealtimeService.connect();
+
+    // Слушаем события принудительного обновления
+    const handleForceRefresh = () => {
+      if (sharePointService) {
+        console.log('🔄 Force refresh triggered by Realtime');
+        refreshDataInBackground(sharePointService);
+      }
+    };
+
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'sharepoint_force_refresh') {
+        handleForceRefresh();
+      }
+    });
+
+    return () => {
+      supabaseRealtimeService.disconnect();
+    };
   }, []);
 
   // Загрузка кешированных данных из localStorage
