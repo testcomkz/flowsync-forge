@@ -346,6 +346,71 @@ export default function InspectionEdit() {
         return;
       }
     }
+
+    // Валидация дат
+    const parseDate = (dateStr: string | number | undefined | null) => {
+      if (dateStr === null || dateStr === undefined || dateStr === '') return null;
+      
+      // Если это число (Excel serial date)
+      if (typeof dateStr === 'number' && Number.isFinite(dateStr)) {
+        const excelEpoch = Date.UTC(1899, 11, 30);
+        const millis = excelEpoch + dateStr * 86400000;
+        return new Date(millis);
+      }
+      
+      const str = String(dateStr).trim();
+      if (!str) return null;
+      
+      // Формат dd/mm/yyyy
+      const ddmmyyyy = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (ddmmyyyy) {
+        const day = parseInt(ddmmyyyy[1], 10);
+        const month = parseInt(ddmmyyyy[2], 10) - 1;
+        const year = parseInt(ddmmyyyy[3], 10);
+        const dt = new Date(year, month, day);
+        if (dt.getFullYear() === year && dt.getMonth() === month && dt.getDate() === day) {
+          return dt;
+        }
+        return null;
+      }
+      
+      // ISO формат yyyy-mm-dd
+      const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (iso) {
+        const year = parseInt(iso[1], 10);
+        const month = parseInt(iso[2], 10) - 1;
+        const day = parseInt(iso[3], 10);
+        const dt = new Date(year, month, day);
+        if (dt.getFullYear() === year && dt.getMonth() === month && dt.getDate() === day) {
+          return dt;
+        }
+        return null;
+      }
+      
+      // Fallback для других форматов
+      const d = new Date(str);
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+
+    const arrivalDateObj = parseDate(record.arrival_date);
+    const startDateObj = parseDate(startDate);
+    const endDateObj = parseDate(endDate);
+
+    if (startDateObj && endDateObj && startDateObj > endDateObj) {
+      toast({ title: "Ошибка", description: "End Date не может быть раньше Start Date", variant: "destructive" });
+      return;
+    }
+
+    if (arrivalDateObj && startDateObj && startDateObj < arrivalDateObj) {
+      toast({ title: "Ошибка", description: "Start Date не может быть раньше Arrival Date", variant: "destructive" });
+      return;
+    }
+
+    if (arrivalDateObj && endDateObj && endDateObj < arrivalDateObj) {
+      toast({ title: "Ошибка", description: "End Date не может быть раньше Arrival Date", variant: "destructive" });
+      return;
+    }
+
     setConfirmLines([
       `Client: ${record.client}`,
       `WO: ${record.wo_no}`,
@@ -359,10 +424,18 @@ export default function InspectionEdit() {
     setIsSaving(true);
     try {
       const num = (v: string) => Number(sanitizeNumberString(v)) || 0;
+      
+      // Пересчитать Pipe_To на основе нового Qty
+      const pipeFrom = Number(sanitizeNumberString(record.pipe_from || "0"));
+      const newPipeTo = pipeFrom + effectiveQty - 1;
+      
       const success = await sharePointService.updateTubingInspectionData({
         client: record.client,
         wo_no: record.wo_no,
         batch: record.batch,
+        qty: effectiveQty, // Передать Qty для обновления (исправление бага)
+        pipe_from: pipeFrom, // Передать Pipe_From
+        pipe_to: newPipeTo, // Пересчитанный Pipe_To = Pipe_From + Qty - 1
         class_1: String(num(class1)),
         class_2: String(num(class2)),
         class_3: String(num(class3)),
@@ -390,6 +463,7 @@ export default function InspectionEdit() {
         return;
       }
 
+      setIsConfirmOpen(false); // Закрыть popup сразу после успешного сохранения
       toast({ title: "Changes saved", description: `${record.batch} updated successfully.` });
 
       import("@/lib/safe-storage").then(({ safeLocalStorage }) => {
@@ -411,7 +485,6 @@ export default function InspectionEdit() {
       });
     } finally {
       setIsSaving(false);
-      setIsConfirmOpen(false);
     }
   };
 
@@ -564,7 +637,12 @@ export default function InspectionEdit() {
                 <div className="flex justify-end gap-3">
                   <Button variant="destructive" onClick={handleCancel} className="min-w-[120px]">Cancel</Button>
                   <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[140px] bg-blue-600 hover:bg-blue-700 text-white">
-                    {isSaving ? "Saving..." : "Save"}
+                    {isSaving 
+                      ? "Saving..." 
+                      : (record?.status || "").toLowerCase().includes("completed") 
+                        ? "Continue to Edit" 
+                        : "Save"
+                    }
                   </Button>
                 </div>
               </CardContent>

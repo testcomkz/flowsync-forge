@@ -232,10 +232,14 @@ export default function AddClient() {
                   <div className="p-4 text-sm text-gray-500">Клиенты ещё не добавлены</div>
                 ) : (
                   sortedRecords.map(record => (
-                    <div key={`${record.name}-${record.payer}`} className="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-4 p-4">
+                    <div key={`${record.clientCode}-${record.name}`} className="grid grid-cols-1 md:grid-cols-[1fr_2fr_1.5fr] gap-4 p-4">
+                      <div>
+                        <p className="text-sm font-semibold text-blue-700 font-mono">{record.clientCode}</p>
+                        <p className="text-xs text-gray-500">Client Code</p>
+                      </div>
                       <div>
                         <p className="text-sm font-semibold text-gray-800">{record.name}</p>
-                        <p className="text-xs text-gray-500">Client</p>
+                        <p className="text-xs text-gray-500">Client Name</p>
                       </div>
                       <div>
                         <p className="text-sm font-semibold text-gray-800">{record.payer || "—"}</p>

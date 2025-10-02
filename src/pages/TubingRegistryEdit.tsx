@@ -14,6 +14,7 @@ import { safeLocalStorage } from "@/lib/safe-storage";
 import { useSharePoint } from "@/contexts/SharePointContext";
 import { useSharePointInstantData } from "@/hooks/useInstantData";
 import { computePipeTo, parseTubingRecords, sanitizeNumberString } from "@/lib/tubing-records";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 interface LocationState {
   client?: string;
@@ -46,6 +47,8 @@ export default function TubingRegistryEdit() {
   const [rack, setRack] = useState("");
   const [arrivalDate, setArrivalDate] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [confirmLines, setConfirmLines] = useState<string[]>([]);
   const lastRecordIdRef = useRef<string | null>(null);
   const initialRef = useRef<{ quantity: string; rack: string; arrivalDate: string } | null>(null);
 
@@ -129,16 +132,85 @@ export default function TubingRegistryEdit() {
       return;
     }
 
-    const confirmMsg = [
-      'Are you sure you want to update Tubing Registry?',
-      `Client: ${record.client}`,
-      `WO: ${record.wo_no}`,
-      `Batch: ${record.batch}`
-    ].join('\n');
-    if (!window.confirm(confirmMsg)) {
+    // Валидация даты
+    if (!arrivalDate || !arrivalDate.trim()) {
+      toast({
+        title: "Ошибка валидации",
+        description: "Выберите дату прибытия (Arrival Date)",
+        variant: "destructive"
+      });
       return;
     }
 
+    // Всегда проверять: Arrival Date не может быть позже Start/End Date (равенство допускается)
+    const parseDate = (dateStr: string) => {
+      if (!dateStr) return null;
+      const parts = dateStr.split('/');
+      if (parts.length === 3) {
+        const day = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10) - 1;
+        const year = parseInt(parts[2], 10);
+        const dt = new Date(year, month, day);
+        return (dt.getFullYear() === year && dt.getMonth() === month && dt.getDate() === day) ? dt : null;
+      }
+      const d = new Date(dateStr);
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+
+    const arrivalDateObj = parseDate(arrivalDate);
+    const startDateObj = record.start_date ? parseDate(String(record.start_date)) : null;
+    const endDateObj = record.end_date ? parseDate(String(record.end_date)) : null;
+    const loadOutDateObj = record.load_out_date ? parseDate(String(record.load_out_date)) : null;
+    const avrDateObj = record.act_date ? parseDate(String(record.act_date)) : null;
+
+    if (arrivalDateObj && startDateObj && arrivalDateObj > startDateObj) {
+      toast({
+        title: "Ошибка валидации",
+        description: "Arrival Date не может быть позже Start Date",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (arrivalDateObj && endDateObj && arrivalDateObj > endDateObj) {
+      toast({
+        title: "Ошибка валидации",
+        description: "Arrival Date не может быть позже End Date",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (arrivalDateObj && loadOutDateObj && arrivalDateObj > loadOutDateObj) {
+      toast({
+        title: "Ошибка валидации",
+        description: "Arrival Date не может быть позже Load Out Date",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (arrivalDateObj && avrDateObj && arrivalDateObj > avrDateObj) {
+      toast({
+        title: "Ошибка валидации",
+        description: "Arrival Date не может быть позже AVR Date",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setConfirmLines([
+      `Client: ${record.client}`,
+      `WO: ${record.wo_no}`,
+      `Batch: ${record.batch}`,
+      `Qty: ${quantity}`,
+      `Rack: ${rack}`
+    ]);
+    setIsConfirmOpen(true);
+  };
+
+  const doUpdate = async () => {
+    if (!record || !sharePointService) return;
     setIsSaving(true);
     try {
       const pipeToValue = computedPipeTo || record.pipe_to || "";
@@ -167,11 +239,27 @@ export default function TubingRegistryEdit() {
         return;
       }
 
+      setIsConfirmOpen(false); // Закрыть popup сразу
       toast({ title: "Tubing registry updated", description: `${record.batch} saved successfully.` });
 
       safeLocalStorage.removeItem("sharepoint_last_refresh");
       await refreshDataInBackground(sharePointService);
-      navigate("/edit-records");
+      
+      // Логика перехода в зависимости от статуса
+      const statusNorm = (record.status || "").toLowerCase();
+      if (statusNorm.includes("inspection done") || statusNorm.includes("completed")) {
+        // Переход в Inspection Edit для дальнейшего редактирования
+        navigate("/inspection-edit", { 
+          state: { 
+            client: record.client, 
+            wo_no: record.wo_no, 
+            batch: record.batch 
+          } 
+        });
+      } else {
+        // Для Arrived - вернуться в Edit Records
+        navigate("/edit-records");
+      }
     } catch (error) {
       console.error("Failed to update tubing registry", error);
       toast({
@@ -206,6 +294,17 @@ export default function TubingRegistryEdit() {
             <CardTitle className="text-xl font-semibold text-blue-900">Update Tubing Registry</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5 p-5">
+            <ConfirmDialog
+              open={isConfirmOpen}
+              title="Update Tubing Registry?"
+              description="Confirm updating the selected batch"
+              lines={confirmLines}
+              confirmText="Update"
+              cancelText="Cancel"
+              onConfirm={doUpdate}
+              onCancel={() => setIsConfirmOpen(false)}
+              loading={isSaving}
+            />
             {missingSelection || !record ? (
               <div className="rounded-lg border border-dashed border-blue-300 bg-white p-6 text-center text-sm text-blue-700">
                 Batch details not found. Please return to Edit Records and select a batch.
@@ -281,7 +380,12 @@ export default function TubingRegistryEdit() {
                 <div className="flex justify-end gap-3">
                   <Button variant="destructive" onClick={handleCancel} className="min-w-[120px]">Cancel</Button>
                   <Button onClick={handleUpdate} disabled={isSaving} className="min-w-[140px] bg-blue-600 hover:bg-blue-700 text-white">
-                    {isSaving ? "Updating..." : "Update"}
+                    {isSaving 
+                      ? "Saving..." 
+                      : (record.status || "").toLowerCase().includes("arrived") 
+                        ? "Save" 
+                        : "Continue to Edit"
+                    }
                   </Button>
                 </div>
               </>

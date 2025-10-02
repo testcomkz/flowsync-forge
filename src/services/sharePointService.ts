@@ -3,6 +3,7 @@ import { AuthenticationProvider } from "@microsoft/microsoft-graph-client";
 import { safeLocalStorage } from '@/lib/safe-storage';
 
 export interface ClientRecord {
+  clientCode: string;  // Уникальный неизменяемый ID клиента
   name: string;
   payer: string;
   rawRow: any[];
@@ -474,6 +475,11 @@ export class SharePointService {
 
       const rowValues = Array.from({ length: totalColumns }, () => '');
 
+      // Найти индекс колонки ClientCode
+      const clientCodeIndex = canonicalHeaders.findIndex(header =>
+        header === 'clientcode' || header === 'client_code'
+      );
+
       const clientIndex = canonicalHeaders.findIndex(header =>
         header === 'client' || header.endsWith('_client')
       );
@@ -481,6 +487,31 @@ export class SharePointService {
       const payerIndex = canonicalHeaders.findIndex(header =>
         header.includes('payer') || header.includes('branch')
       );
+
+      // Автоматическая генерация ClientCode (найти максимальный + 1)
+      let newClientCode = '10001'; // Начальное значение по умолчанию
+      if (usedInfo?.values && usedInfo.values.length > 1 && clientCodeIndex >= 0) {
+        const existingCodes = usedInfo.values
+          .slice(1) // Пропустить заголовок
+          .map(row => {
+            const codeValue = row[clientCodeIndex];
+            const codeStr = codeValue ? String(codeValue).trim() : '';
+            return parseInt(codeStr, 10);
+          })
+          .filter(code => !isNaN(code) && code > 0);
+
+        if (existingCodes.length > 0) {
+          const maxCode = Math.max(...existingCodes);
+          newClientCode = String(maxCode + 1);
+        }
+      }
+
+      console.log(`🔢 Generated new ClientCode: ${newClientCode}`);
+
+      // Записать ClientCode
+      if (clientCodeIndex >= 0) {
+        rowValues[clientCodeIndex] = newClientCode;
+      }
 
       const resolvedClientIndex = clientIndex >= 0 ? clientIndex : Math.min(1, totalColumns - 1);
       const resolvedPayerIndex = payerIndex >= 0
@@ -534,6 +565,12 @@ export class SharePointService {
         return false;
       }
       
+      // Получить ClientCode для данного клиента
+      const clientRecords = await this.getClientRecordsFromExcel();
+      const clientRecord = clientRecords.find(r => r.name === data.client);
+      const clientCode = clientRecord?.clientCode || '';
+      console.log(`🔢 ClientCode for "${data.client}": ${clientCode}`);
+      
       // Найти правильную позицию для вставки после последнего work order этого клиента
       const insertPosition = this.findClientInsertPosition(currentData, data.client);
       console.log(`📍 Adding work order for client ${data.client} at position: ${insertPosition}`);
@@ -566,8 +603,13 @@ export class SharePointService {
           console.log(`   ✅ WO_No column: ${data.wo_no}`);
           return data.wo_no;
         }
+        // Если встретили колонку ClientCode, записываем ClientCode вместо имени
+        if (canonical === 'clientcode' || canonical === 'client_code') {
+          console.log(`   ✅ ClientCode column: ${clientCode}`);
+          return clientCode;
+        }
         if (canonical.includes('client')) {
-          console.log(`   ✅ Client column: ${data.client}`);
+          console.log(`   ℹ️ Client column (name for display): ${data.client}`);
           return data.client;
         }
         if (canonical === 'type' || canonical.includes('type_of_pipe') || canonical.includes('pipe_type')) {
@@ -641,6 +683,10 @@ export class SharePointService {
           console.log(`   ✅ Payer column: ${data.payer}`);
           return data.payer || '';
         }
+        if (canonical === 'wo_status' || canonical === 'wostatus' || canonical === 'status') {
+          console.log(`   ✅ WO_Status column: Open`);
+          return 'Open';
+        }
 
         console.log(`   ❌ Unknown column "${headerStr}" - leaving empty`);
         return '';
@@ -661,6 +707,70 @@ export class SharePointService {
     } catch (error) {
       console.error('❌ Error creating work order in Excel:', error);
       return false;
+    }
+  }
+
+  async closeWorkOrder(client: string, wo_no: string): Promise<{ success: boolean; message?: string }> {
+    try {
+      // Проверить наличие батчей для этого Work Order
+      const tubingData = await this.getExcelData('tubing');
+      if (!tubingData || tubingData.length <= 1) {
+        return { success: false, message: 'No tubing data found' };
+      }
+
+      const headers = tubingData[0];
+      const normalize = (v: unknown) => (v === null || v === undefined ? '' : String(v).trim().toLowerCase());
+      const clientIdx = headers.findIndex((h: any) => normalize(h).includes('client'));
+      const woIdx = headers.findIndex((h: any) => normalize(h).includes('wo'));
+
+      const hasBatches = tubingData.slice(1).some(row => 
+        normalize(row[clientIdx]) === normalize(client) && 
+        normalize(row[woIdx]) === normalize(wo_no)
+      );
+
+      if (!hasBatches) {
+        return { success: false, message: 'Cannot close Work Order: No batches found for this WO' };
+      }
+
+      // Обновить WO_Status на "Closed"
+      const usedInfo = await this.getUsedRangeInfo('wo');
+      if (!usedInfo?.values?.length) {
+        return { success: false, message: 'Work order data not found' };
+      }
+
+      const { values, meta } = usedInfo;
+      const woHeaders = Array.isArray(values[0]) ? (values[0] as unknown[]) : [];
+      const canonicalize = (v: string) => v.replace(/[^a-z0-9]+/g, '_').replace(/_{2,}/g, '_').replace(/^_|_$/g, '');
+      const canonicalHeaders = woHeaders.map(h => canonicalize(normalize(h)));
+
+      const woClientIdx = canonicalHeaders.findIndex(h => h.includes('client'));
+      const woNoIdx = canonicalHeaders.findIndex(h => (h === 'wo_no' || h === 'wo') && !h.includes('date'));
+      const statusIdx = canonicalHeaders.findIndex(h => h === 'wo_status' || h === 'wostatus' || h === 'status');
+
+      if (statusIdx === -1) {
+        return { success: false, message: 'WO_Status column not found in Excel' };
+      }
+
+      const rowIndex = values.findIndex((row, idx) => 
+        idx !== 0 && 
+        normalize(row[woClientIdx]) === normalize(client) && 
+        normalize(row[woNoIdx]) === normalize(wo_no)
+      );
+
+      if (rowIndex === -1) {
+        return { success: false, message: 'Work order not found' };
+      }
+
+      const rowNumber = meta.startRow + rowIndex;
+      const colNumber = meta.startCol + statusIdx;
+      const colLetters = this.indexToColLetters(colNumber);
+      const range = `${colLetters}${rowNumber}`;
+
+      const success = await this.writeExcelData('wo', range, [['Closed']]);
+      return success ? { success: true } : { success: false, message: 'Failed to update status' };
+    } catch (error) {
+      console.error('❌ Error closing work order:', error);
+      return { success: false, message: 'Unexpected error' };
     }
   }
 
@@ -1897,6 +2007,11 @@ export class SharePointService {
           .replace(/_{2,}/g, '_')
           .replace(/^_|_$/g, '');
 
+      const clientCodeIndex = headers.findIndex(header => {
+        const norm = normalise(header);
+        return norm === 'clientcode' || norm === 'client_code';
+      });
+
       const clientIndex = headers.findIndex(header => {
         const norm = normalise(header);
         return norm === 'client' || norm.endsWith('_client');
@@ -1910,13 +2025,15 @@ export class SharePointService {
       return data
         .slice(1)
         .map(row => {
+          const clientCodeValue = clientCodeIndex >= 0 ? row[clientCodeIndex] : '';
           const clientName = clientIndex >= 0 ? row[clientIndex] : '';
           const payerValue = payerIndex >= 0 ? row[payerIndex] : '';
+          const clientCode = clientCodeValue ? String(clientCodeValue).trim() : '';
           const name = clientName ? String(clientName).trim() : '';
           const payer = payerValue ? String(payerValue).trim() : '';
-          return { name, payer, rawRow: row } as ClientRecord;
+          return { clientCode, name, payer, rawRow: row } as ClientRecord;
         })
-        .filter(record => record.name);
+        .filter(record => record.name && record.clientCode);
     } catch (error) {
       console.error('❌ Error getting client records from Excel:', error);
       return [];
@@ -1954,6 +2071,12 @@ export class SharePointService {
     try {
       console.log('🔥 TUBING: Starting addTubingRecordToExcel with data:', data);
 
+      // Получить ClientCode для данного клиента
+      const clientRecords = await this.getClientRecordsFromExcel();
+      const clientRecord = clientRecords.find(r => r.name === data.client);
+      const clientCode = clientRecord?.clientCode || '';
+      console.log(`🔢 TUBING: ClientCode for "${data.client}": ${clientCode}`);
+
       // Получить текущие данные из листа 'tubing'
       console.log('📊 TUBING: Getting current tubing data...');
       let currentData = await this.getExcelData('tubing');
@@ -1977,7 +2100,12 @@ export class SharePointService {
       // Создаем массив данных в порядке заголовков (безопасно обрабатываем нестроковые заголовки)
       const newRowData = headers.map((header: string) => {
         const headerStr = header !== undefined && header !== null ? String(header) : '';
-        const headerLower = headerStr.toLowerCase();
+        const headerLower = headerStr.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+        // Если встретили колонку ClientCode, записываем ClientCode вместо имени
+        if (headerLower === 'clientcode' || headerLower === 'client_code') {
+          console.log(`   ✅ TUBING: ClientCode column: ${clientCode}`);
+          return clientCode;
+        }
         if (headerLower.includes('client')) return data.client;
         if (headerLower.includes('wo')) return data.wo_no;
         if (headerLower.includes('batch')) return data.batch;
@@ -2175,10 +2303,80 @@ export class SharePointService {
     }
   }
 
+  // Пересчитать Pipe_From и Pipe_To для всех последующих батчей после изменения Qty
+  private async recalculateSubsequentBatches(client: string, wo_no: string, changedBatch: string): Promise<boolean> {
+    try {
+      const usedInfo = await this.getUsedRangeInfo('tubing');
+      if (!usedInfo?.values?.length) return false;
+
+      const { values, meta } = usedInfo;
+      const headers = Array.isArray(values[0]) ? (values[0] as unknown[]) : [];
+      const normalize = (v: unknown) => (v === null || v === undefined ? '' : String(v).trim().toLowerCase());
+      const canonicalize = (h: string) => h.replace(/[^a-z0-9]+/g, '_').replace(/_{2,}/g, '_').replace(/^_|_$/g, '');
+      const canonicalHeaders = headers.map(h => canonicalize(normalize(h)));
+
+      const clientIdx = canonicalHeaders.findIndex(h => h.includes('client'));
+      const woIdx = canonicalHeaders.findIndex(h => h.includes('wo'));
+      const batchIdx = canonicalHeaders.findIndex(h => h.includes('batch'));
+      const qtyIdx = canonicalHeaders.findIndex(h => (h === 'qty' || h === 'quantity') && !h.includes('scrap'));
+      const pipeFromIdx = canonicalHeaders.findIndex(h => h.includes('pipe_from') || h.includes('from'));
+      const pipeToIdx = canonicalHeaders.findIndex(h => h.includes('pipe_to') || h.includes('to'));
+
+      if (clientIdx === -1 || woIdx === -1 || batchIdx === -1 || qtyIdx === -1 || pipeFromIdx === -1 || pipeToIdx === -1) {
+        console.warn('⚠️ Required columns not found for batch recalculation');
+        return false;
+      }
+
+      // Найти все батчи этого клиента/WO
+      const batches = values
+        .map((row, idx) => ({ row, idx }))
+        .filter(({ row, idx }) => 
+          idx > 0 && 
+          normalize(row[clientIdx]) === normalize(client) && 
+          normalize(row[woIdx]) === normalize(wo_no)
+        );
+
+      // Найти индекс изменённого батча
+      const changedIdx = batches.findIndex(({ row }) => normalize(row[batchIdx]) === normalize(changedBatch));
+      if (changedIdx === -1) return false;
+
+      // Пересчитать все последующие батчи
+      let currentPipeTo = Number(values[batches[changedIdx].idx][pipeToIdx]) || 0;
+
+      for (let i = changedIdx + 1; i < batches.length; i++) {
+        const { row, idx: rowIdx } = batches[i];
+        const qty = Number(row[qtyIdx]) || 0;
+        const newPipeFrom = currentPipeTo + 1;
+        const newPipeTo = newPipeFrom + qty - 1;
+
+        // Обновить Pipe_From и Pipe_To для этого батча
+        const rowNumber = meta.startRow + rowIdx;
+        
+        // Обновить Pipe_From
+        const pipeFromCol = this.indexToColLetters(meta.startCol + pipeFromIdx);
+        await this.writeExcelData('tubing', `${pipeFromCol}${rowNumber}`, [[newPipeFrom]]);
+
+        // Обновить Pipe_To
+        const pipeToCol = this.indexToColLetters(meta.startCol + pipeToIdx);
+        await this.writeExcelData('tubing', `${pipeToCol}${rowNumber}`, [[newPipeTo]]);
+
+        currentPipeTo = newPipeTo;
+      }
+
+      return true;
+    } catch (error) {
+      console.error('❌ Error recalculating subsequent batches:', error);
+      return false;
+    }
+  }
+
   async updateTubingInspectionData(data: {
     client: string;
     wo_no: string;
     batch: string;
+    qty?: string | number; // Добавлено для обновления Qty
+    pipe_from?: string | number; // Добавлено для обновления Pipe_From
+    pipe_to?: string | number; // Добавлено для обновления Pipe_To
     class_1?: string;
     class_2?: string;
     class_3?: string;
@@ -2265,6 +2463,29 @@ export class SharePointService {
         }
       };
 
+      // Обновить Qty если передано (для батчей со статусом Inspection Done/Completed)
+      if (data.qty !== undefined) {
+        applyValue((header, canonical) => {
+          const c = canonical ?? header;
+          return (c === 'qty' || c === 'quantity') && !c.includes('scrap');
+        }, data.qty);
+      }
+
+      // Обновить Pipe_From и Pipe_To если передано
+      if (data.pipe_from !== undefined) {
+        applyValue((header, canonical) => {
+          const c = canonical ?? header;
+          return c.includes('pipe_from') || c.includes('from');
+        }, data.pipe_from);
+      }
+
+      if (data.pipe_to !== undefined) {
+        applyValue((header, canonical) => {
+          const c = canonical ?? header;
+          return c.includes('pipe_to') || c.includes('to');
+        }, data.pipe_to);
+      }
+
       applyValue(header => header.includes('class 1') || header.includes('class_1'), data.class_1);
       applyValue(header => header.includes('class 2') || header.includes('class_2'), data.class_2);
       applyValue(header => header.includes('class 3') || header.includes('class_3'), data.class_3);
@@ -2281,15 +2502,18 @@ export class SharePointService {
         const c = canonical ?? header;
         return header.includes('end date') || c.includes('end_date');
       }, data.end_date ?? '');
-      // Do NOT write to total 'Scrap' column; keep Excel formulas intact
-
-      // For Inspection Data entry we allow writing per-stage Scrap_Qty columns (edit flow passes no values)
-      if (data.rattling_scrap_qty !== undefined) applyValue((header, canonical) => canonical.includes('rattling_scrap'), data.rattling_scrap_qty ?? '');
-      if (data.external_scrap_qty !== undefined) applyValue((header, canonical) => canonical.includes('external_scrap'), data.external_scrap_qty ?? '');
-      if (data.jetting_scrap_qty !== undefined) applyValue((header, canonical) => canonical.includes('hydro_scrap') || canonical.includes('jetting_scrap'), data.jetting_scrap_qty ?? '');
-      if (data.mpi_scrap_qty !== undefined) applyValue((header, canonical) => canonical.includes('mpi_scrap'), data.mpi_scrap_qty ?? '');
-      if (data.drift_scrap_qty !== undefined) applyValue((header, canonical) => canonical.includes('drift_scrap'), data.drift_scrap_qty ?? '');
-      if (data.emi_scrap_qty !== undefined) applyValue((header, canonical) => canonical.includes('emi_scrap'), data.emi_scrap_qty ?? '');
+      
+      // ВАЖНО: Пишем в колонку "Scrap" (total scrap), НО НЕ в "Scrap_Qty" колонки!
+      if (data.scrap !== undefined) {
+        applyValue((header, canonical) => {
+          const c = canonical ?? header;
+          // Только колонка "Scrap" без "_qty" и без названия этапа (rattling, external и т.д.)
+          return (c === 'scrap' || header.toLowerCase() === 'scrap') && !c.includes('_qty') && !c.includes('scrap_qty');
+        }, data.scrap);
+      }
+      
+      // Do NOT write to per-stage Scrap_Qty columns - they have formulas in Excel!
+      // (Rattling Scrap_Qty, External Scrap_Qty, Jetting_Scrap_Qty, MPI_Scrap_Qty, Drift_Scrap_Qty, EMI_Scrap_Qty)
 
       applyValue(
         (header, canonical) => {
@@ -2383,6 +2607,12 @@ export class SharePointService {
       }
 
       if (overallSuccess) {
+        // Если Qty был изменён, пересчитать все последующие батчи
+        if (data.qty !== undefined) {
+          console.log('🔄 Recalculating subsequent batches after Qty change...');
+          await this.recalculateSubsequentBatches(data.client, data.wo_no, data.batch);
+        }
+
         safeLocalStorage.removeItem('sharepoint_cached_tubing');
         safeLocalStorage.removeItem('sharepoint_cache_timestamp_tubing');
       }

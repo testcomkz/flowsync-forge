@@ -4,9 +4,27 @@ import { ArrowLeft, ClipboardEdit, Layers, Wrench, Users } from "lucide-react";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { useSharePoint } from "@/contexts/SharePointContext";
+import { safeLocalStorage } from "@/lib/safe-storage";
 
 export default function EditRecords() {
   const navigate = useNavigate();
+  const { sharePointService, refreshDataInBackground } = useSharePoint();
+
+  // Fire-and-forget background refresh on click, then navigate immediately
+  const navigateWithBackgroundRefresh = (path: string) => {
+    try {
+      if (sharePointService && refreshDataInBackground) {
+        safeLocalStorage.removeItem("sharepoint_last_refresh");
+        refreshDataInBackground(sharePointService).catch(err => {
+          console.warn("Background refresh from EditRecords failed:", err);
+        });
+      }
+    } catch (err) {
+      console.warn("Failed to trigger background refresh:", err);
+    }
+    navigate(path);
+  };
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -33,7 +51,7 @@ export default function EditRecords() {
                 <p className="text-lg font-semibold text-slate-900">Batch Edit</p>
                 <p className="text-sm text-slate-600">Batch editing workflow</p>
               </div>
-              <Button onClick={() => navigate('/batch-edit')} className="mt-1 bg-blue-600 hover:bg-blue-700 text-white w-full">Open Batch Edit</Button>
+              <Button onClick={() => navigateWithBackgroundRefresh('/batch-edit')} className="mt-1 bg-blue-600 hover:bg-blue-700 text-white w-full">Open Batch Edit</Button>
             </CardContent>
           </Card>
 
@@ -46,7 +64,7 @@ export default function EditRecords() {
                 <p className="text-lg font-semibold text-slate-900">Edit Work Orders</p>
                 <p className="text-sm text-slate-600">Edit WO fields</p>
               </div>
-              <Button onClick={() => navigate('/workorder-edit-select')} className="mt-1 bg-blue-600 hover:bg-blue-700 text-white w-full">Open Edit Work Orders</Button>
+              <Button onClick={() => navigateWithBackgroundRefresh('/workorder-edit-select')} className="mt-1 bg-blue-600 hover:bg-blue-700 text-white w-full">Open Edit Work Orders</Button>
             </CardContent>
           </Card>
 
@@ -59,7 +77,7 @@ export default function EditRecords() {
                 <p className="text-lg font-semibold text-slate-900">Edit Clients</p>
                 <p className="text-sm text-slate-600">Manage client names & payer</p>
               </div>
-              <Button onClick={() => navigate('/edit-clients')} className="mt-1 bg-blue-600 hover:bg-blue-700 text-white w-full">Open Edit Clients</Button>
+              <Button onClick={() => navigateWithBackgroundRefresh('/edit-clients')} className="mt-1 bg-blue-600 hover:bg-blue-700 text-white w-full">Open Edit Clients</Button>
             </CardContent>
           </Card>
         </div>

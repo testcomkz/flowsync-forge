@@ -122,6 +122,39 @@ export default function LoadOutEdit() {
       return;
     }
 
+    // Date validations: Load Out Date and AVR Date must not be earlier than Arrival/Start/End
+    const parseDate = (dateStr: string) => {
+      if (!dateStr) return null;
+      const parts = dateStr.split('/');
+      if (parts.length === 3) {
+        const day = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10) - 1;
+        const year = parseInt(parts[2], 10);
+        const dt = new Date(year, month, day);
+        return (dt.getFullYear() === year && dt.getMonth() === month && dt.getDate() === day) ? dt : null;
+      }
+      const d = new Date(dateStr);
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+
+    const arrival = record.arrival_date ? parseDate(String(record.arrival_date)) : null;
+    const start = record.start_date ? parseDate(String(record.start_date)) : null;
+    const end = record.end_date ? parseDate(String(record.end_date)) : null;
+    const loadOut = loadOutDate ? parseDate(loadOutDate) : null;
+    const avrDt = avrDate ? parseDate(avrDate) : null;
+
+    const err = (msg: string) => {
+      toast({ title: "Ошибка валидации", description: msg, variant: "destructive" });
+    };
+
+    if (arrival && loadOut && loadOut < arrival) { err("Load Out Date не может быть раньше Arrival Date"); return; }
+    if (start && loadOut && loadOut < start) { err("Load Out Date не может быть раньше Start Date"); return; }
+    if (end && loadOut && loadOut < end) { err("Load Out Date не может быть раньше End Date"); return; }
+
+    if (arrival && avrDt && avrDt < arrival) { err("AVR Date не может быть раньше Arrival Date"); return; }
+    if (start && avrDt && avrDt < start) { err("AVR Date не может быть раньше Start Date"); return; }
+    if (end && avrDt && avrDt < end) { err("AVR Date не может быть раньше End Date"); return; }
+
     const confirmMsg = [
       'Are you sure you want to update Load Out?',
       `Client: ${record.client}`,

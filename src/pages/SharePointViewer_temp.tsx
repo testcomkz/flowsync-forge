@@ -601,7 +601,7 @@ const SharePointViewer: React.FC = () => {
               className="mb-4 border-2 hover:bg-gray-50"
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Dashboard
+              Назад в меню
             </Button>
           </div>
           <Card className="max-w-md mx-auto border-2 shadow-lg">
@@ -636,18 +636,53 @@ const SharePointViewer: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-50">
       <Header />
-      <div className="container mx-auto p-6">
+      <div className="container mx-auto p-6 space-y-6">
       <div className="mb-6">
         <Button
           onClick={() => navigate('/')}
           variant="outline"
-          className="border-2 hover:bg-gray-50"
+          className="mb-4 border-2 hover:bg-gray-50"
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Dashboard
+          Назад в меню
         </Button>
       </div>
+
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Dashboard</h1>
+          <p className="text-muted-foreground text-lg">
+            Overview of active clients, work orders, and tubing batches from SharePoint Excel
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <Button onClick={handleDisconnect} variant="outline" className="border-2 hover:bg-red-50">
+            Sign Out
+          </Button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <Card className="border-2 shadow-lg hover:shadow-xl transition-shadow">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+            <CardTitle className="text-base font-semibold">Clients</CardTitle>
+            <Users className="h-5 w-5 text-blue-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-blue-600">{totalClients}</div>
+            <p className="text-sm text-muted-foreground">Unique clients with active records</p>
+          </CardContent>
+        </Card>
+        <Card className="border-2 shadow-lg hover:shadow-xl transition-shadow">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+            <CardTitle className="text-base font-semibold">Work Order Info</CardTitle>
+            <Briefcase className="h-5 w-5 text-green-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-green-600">{totalWorkOrders}</div>
+            <p className="text-sm text-muted-foreground">Active Work Orders</p>
+          </CardContent>
+        </Card>
         <Card className="border-2 shadow-lg hover:shadow-xl transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
             <CardTitle className="text-base font-semibold">Batch Info</CardTitle>
@@ -656,6 +691,16 @@ const SharePointViewer: React.FC = () => {
           <CardContent>
             <div className="text-3xl font-bold text-purple-600">{totalBatches}</div>
             <p className="text-sm text-muted-foreground">Batches in Arrived or Inspection Done status</p>
+          </CardContent>
+        </Card>
+        <Card className="border-2 shadow-lg hover:shadow-xl transition-shadow">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+            <CardTitle className="text-base font-semibold">Clients</CardTitle>
+            <Users className="h-5 w-5 text-blue-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-blue-600">{totalClients}</div>
+            <p className="text-sm text-muted-foreground">Unique clients with active records</p>
           </CardContent>
         </Card>
         <Card className="border-2 shadow-lg hover:shadow-xl transition-shadow">
@@ -880,10 +925,10 @@ const SharePointViewer: React.FC = () => {
                     <ToggleGroupItem value="completed" className="flex-1">Completed</ToggleGroupItem>
                   </ToggleGroup>
                 </div>
-              <div className="space-y-2 md:text-right">
-                <div className="text-sm text-muted-foreground">Filter by client</div>
+              <div class="space-y-2 md:text-right">
+                <div class="text-sm text-muted-foreground">Filter by client</div>
                 <Select value={selectedClientFilterBatches} onValueChange={setSelectedClientFilterBatches}>
-                  <SelectTrigger className="w-full md:w-[220px]">
+                  <SelectTrigger class="w-full md:w-[220px]">
                     <SelectValue placeholder="All clients" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1126,7 +1171,7 @@ const SharePointViewer: React.FC = () => {
       </Dialog>
 
       <Dialog open={!!reportBatch} onOpenChange={open => !open && setReportBatch(null)}>
-        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>Inspection Report</DialogTitle>
             <DialogDescription>

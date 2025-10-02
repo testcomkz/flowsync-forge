@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { LogIn, LogOut, User, RefreshCw, TestTube, Download, FileSearch } from "lucide-react";
+import { LogIn, LogOut, User, RefreshCw, TestTube, Download } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSharePoint } from "@/contexts/SharePointContext";
 import { LoginForm } from "@/components/auth/LoginForm";
@@ -8,7 +8,6 @@ import { authService } from "@/services/authService";
 import { SharePointService } from "@/services/sharePointService";
 import { DataStatusIndicator } from "@/components/ui/data-status-indicator";
 import { safeLocalStorage } from '@/lib/safe-storage';
-import { getSharePointFileId } from '@/utils/getFileId';
 
 export const Header = () => {
   const { user, logout, isAuthenticated } = useAuth();
@@ -106,29 +105,6 @@ export const Header = () => {
     }
   };
 
-  const handleGetFileId = async () => {
-    try {
-      if (!isConnected) {
-        alert('Please connect to SharePoint first!');
-        return;
-      }
-      
-      console.log('🔍 Getting File ID...');
-      const fileId = await getSharePointFileId();
-      
-      if (fileId) {
-        alert(`File ID: ${fileId}\n\nCopied to clipboard!`);
-        navigator.clipboard.writeText(fileId);
-        console.log('📋 File ID copied to clipboard:', fileId);
-      } else {
-        alert('Failed to get File ID. Check console for errors.');
-      }
-    } catch (error) {
-      console.error('❌ Error getting File ID:', error);
-      alert('Error: ' + error);
-    }
-  };
-
   return (
     <header className="border-b bg-white shadow-sm">
       <div className="container mx-auto px-4 py-3 flex items-center justify-between">
@@ -140,8 +116,8 @@ export const Header = () => {
         
         {/* Authentication */}
         <div className="flex items-center space-x-3">
-          {/* Data Control Buttons - только Load Data для первого подключения */}
-          {!isConnected && (
+          {/* Data Control Buttons */}
+          {!isConnected ? (
             <Button 
               onClick={handleLoadData}
               disabled={isConnecting}
@@ -151,6 +127,29 @@ export const Header = () => {
               <Download className="h-4 w-4 mr-2" />
               {isConnecting ? "Loading..." : "Load Data"}
             </Button>
+          ) : (
+            <div className="flex items-center space-x-2">
+              <Button 
+                onClick={handleUpdateData}
+                disabled={isDataLoading}
+                variant="outline"
+                className="border-blue-500 text-blue-600 hover:bg-blue-50 font-semibold px-4 py-2"
+                size="sm"
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${isDataLoading ? 'animate-spin' : ''}`} />
+                {isDataLoading ? "Updating..." : "Update Data"}
+              </Button>
+              <Button
+                onClick={handleResetExcelSession}
+                variant="outline"
+                className="border-amber-500 text-amber-600 hover:bg-amber-50 font-semibold px-4 py-2"
+                size="sm"
+                title="Reset cached Excel workbook session"
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Reset Excel Session
+              </Button>
+            </div>
           )}
           
           {/* Data Status Indicator */}

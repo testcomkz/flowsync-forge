@@ -44,16 +44,17 @@ export const MainDashboard = () => {
       alert("Сначала подключитесь к SharePoint");
       return;
     }
+    // Запускаем обновление данных в ФОНЕ и сразу переходим на страницу (без ожидания)
     if (sharePointService && refreshDataInBackground) {
       try {
-        setRefreshingCard(path);
-        // Сбрасываем метку свежести, чтобы принудительно получить новые данные
+        // Сброс метки свежести, чтобы при клике всегда получить новые данные в фоне
         safeLocalStorage.removeItem("sharepoint_last_refresh");
-        await refreshDataInBackground(sharePointService);
+        // fire-and-forget: не ждём завершения
+        refreshDataInBackground(sharePointService).catch((err) => {
+          console.warn("Background refresh after click failed:", err);
+        });
       } catch (error) {
-        console.warn("Failed to refresh SharePoint data before navigation:", error);
-      } finally {
-        setRefreshingCard(null);
+        console.warn("Failed to trigger background refresh:", error);
       }
     }
     navigate(path);
@@ -195,8 +196,8 @@ export const MainDashboard = () => {
           </CardHeader>
           <CardContent className="pt-0">
             <Button 
-              className="w-full h-12 text-base font-semibold border-2" 
-              variant={isConnected ? "outline" : "default"}
+              className={`w-full h-12 text-base font-semibold border-2 ${isConnected ? 'bg-blue-600 hover:bg-blue-700 text-white' : ''}`}
+              variant={isConnected ? "default" : "default"}
               disabled={isConnecting || !isAuthenticated}
               onClick={isConnected ? () => navigate("/sharepoint-viewer") : handleSharePointConnect}
             >

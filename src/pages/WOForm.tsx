@@ -354,6 +354,7 @@ export default function WOForm() {
       const success = await sharePointService.createWorkOrder(payload);
 
       if (success) {
+        setIsConfirmOpen(false); // Закрыть popup сразу после успешного сохранения
         toast({
           title: "✅ Work Order создан успешно!",
           description: (
@@ -426,7 +427,6 @@ export default function WOForm() {
       });
     } finally {
       setIsLoading(false);
-      setIsConfirmOpen(false);
       setPending(null);
     }
   };

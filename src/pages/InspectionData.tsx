@@ -14,6 +14,7 @@ import { useSharePointInstantData } from "@/hooks/useInstantData";
 import { useSharePoint } from "@/contexts/SharePointContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { safeLocalStorage } from '@/lib/safe-storage';
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 type StageKey = "rattling" | "external" | "hydro" | "mpi" | "drift" | "emi" | "marking";
 type ScrapKey = "rattling" | "external" | "jetting" | "mpi" | "drift" | "emi";
@@ -24,6 +25,7 @@ interface ArrivedBatchRow {
   wo_no: string;
   batch: string;
   status: string;
+  arrival_date?: string;
   class_1?: string;
   class_2?: string;
   class_3?: string;
@@ -151,6 +153,8 @@ export default function InspectionData() {
   const [initialQty, setInitialQty] = useState<number>(0);
   const [processedKeys, setProcessedKeys] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [confirmLines, setConfirmLines] = useState<string[]>([]);
   const stagesCardId = "inspection-stages";
   // track initialization to avoid overwriting user's edits when SharePoint cache refreshes
   const [initializedRowKey, setInitializedRowKey] = useState<string | null>(null);
@@ -484,12 +488,117 @@ export default function InspectionData() {
 
     if (!startDate) { toast({ title: "Ошибка", description: "Выберите Start Date", variant: "destructive" }); return; }
     if (!endDate) { toast({ title: "Ошибка", description: "Выберите End Date", variant: "destructive" }); return; }
-    if (!Number.isNaN(Date.parse(startDate)) && !Number.isNaN(Date.parse(endDate))) {
-      if (new Date(startDate) > new Date(endDate)) {
-        toast({ title: "Ошибка", description: "End Date не может быть раньше Start Date", variant: "destructive" });
-        return;
+    
+    // Валидация дат
+    const parseDate = (dateStr: string | number | undefined | null) => {
+      if (dateStr === null || dateStr === undefined || dateStr === '') return null;
+      
+      // Если это число (Excel serial date)
+      if (typeof dateStr === 'number' && Number.isFinite(dateStr)) {
+        const excelEpoch = Date.UTC(1899, 11, 30);
+        const millis = excelEpoch + dateStr * 86400000;
+        return new Date(millis);
       }
+      
+      const str = String(dateStr).trim();
+      if (!str) return null;
+      
+      // Формат dd/mm/yyyy
+      const ddmmyyyy = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (ddmmyyyy) {
+        const day = parseInt(ddmmyyyy[1], 10);
+        const month = parseInt(ddmmyyyy[2], 10) - 1; // месяцы с 0
+        const year = parseInt(ddmmyyyy[3], 10);
+        const dt = new Date(year, month, day);
+        // Проверка валидности даты
+        if (dt.getFullYear() === year && dt.getMonth() === month && dt.getDate() === day) {
+          return dt;
+        }
+        return null;
+      }
+      
+      // ISO формат yyyy-mm-dd
+      const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (iso) {
+        const year = parseInt(iso[1], 10);
+        const month = parseInt(iso[2], 10) - 1;
+        const day = parseInt(iso[3], 10);
+        const dt = new Date(year, month, day);
+        if (dt.getFullYear() === year && dt.getMonth() === month && dt.getDate() === day) {
+          return dt;
+        }
+        return null;
+      }
+      
+      // Fallback для других форматов
+      const d = new Date(str);
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+
+    const arrivalDateObj = parseDate(selectedRow.arrival_date);
+    const startDateObj = parseDate(startDate);
+    const endDateObj = parseDate(endDate);
+
+    // Debug logging
+    console.log('🔍 Date Validation:', {
+      arrivalRaw: selectedRow.arrival_date,
+      arrivalParsed: arrivalDateObj,
+      startRaw: startDate,
+      startParsed: startDateObj,
+      endRaw: endDate,
+      endParsed: endDateObj
+    });
+
+    if (startDateObj && endDateObj && startDateObj > endDateObj) {
+      toast({ title: "Ошибка", description: "End Date не может быть раньше Start Date", variant: "destructive" });
+      return;
     }
+
+    if (arrivalDateObj && startDateObj && startDateObj < arrivalDateObj) {
+      console.log('❌ Start Date < Arrival Date:', startDateObj, '<', arrivalDateObj);
+      toast({ title: "Ошибка", description: "Start Date не может быть раньше Arrival Date", variant: "destructive" });
+      return;
+    }
+
+    if (arrivalDateObj && endDateObj && endDateObj < arrivalDateObj) {
+      console.log('❌ End Date < Arrival Date:', endDateObj, '<', arrivalDateObj);
+      toast({ title: "Ошибка", description: "End Date не может быть раньше Arrival Date", variant: "destructive" });
+      return;
+    }
+
+    // Показать confirmation dialog
+    setConfirmLines([
+      `Client: ${selectedRow.client}`,
+      `WO: ${selectedRow.wo_no}`,
+      `Batch: ${selectedRow.batch}`,
+      `Class 1: ${c1}`,
+      `Class 2: ${c2}`,
+      `Class 3: ${c3}`,
+      `Repair: ${rep}`,
+      `Total Scrap: ${totalScrap}`,
+      `Start Date: ${startDate}`,
+      `End Date: ${endDate}`
+    ]);
+    setIsConfirmOpen(true);
+  };
+
+  const doSave = async () => {
+    if (!selectedRow || !sharePointService) return;
+
+    const c1 = Number(sanitizeDigits(class1)) || 0;
+    const c2 = Number(sanitizeDigits(class2)) || 0;
+    const c3 = Number(sanitizeDigits(class3)) || 0;
+    const rep = Number(sanitizeDigits(repairValue)) || 0;
+
+    const stageNumbers: Record<StageKey, number> = {
+      rattling: computedQuantities.rattling,
+      external: computedQuantities.external,
+      hydro: computedQuantities.hydro,
+      mpi: computedQuantities.mpi,
+      drift: computedQuantities.drift,
+      emi: computedQuantities.emi,
+      marking: computedQuantities.marking
+    };
 
     setIsSaving(true);
     try {
@@ -511,17 +620,12 @@ export default function InspectionData() {
         drift_qty: stageNumbers.drift,
         emi_qty: stageNumbers.emi,
         marking_qty: stageNumbers.marking,
-        // persist per-stage scrap quantities as well
-        rattling_scrap_qty: Number(scrapInputs.rattling || 0),
-        external_scrap_qty: Number(scrapInputs.external || 0),
-        jetting_scrap_qty: Number(scrapInputs.jetting || 0),
-        mpi_scrap_qty: Number(scrapInputs.mpi || 0),
-        drift_scrap_qty: Number(scrapInputs.drift || 0),
-        emi_scrap_qty: Number(scrapInputs.emi || 0),
+        // НЕ отправляем scrap_qty колонки - там формулы в Excel!
         status: "Inspection Done"
       });
 
       if (success) {
+        setIsConfirmOpen(false); // Закрыть popup
         toast({ title: "Успешно", description: "Инспекция сохранена и партия обновлена", variant: "default" });
         setProcessedKeys(prev => (prev.includes(selectedRow.key) ? prev : [...prev, selectedRow.key]));
         
@@ -572,6 +676,17 @@ export default function InspectionData() {
   return (
     <div className="min-h-screen bg-slate-50">
       <Header />
+      <ConfirmDialog
+        open={isConfirmOpen}
+        title="Save Inspection Data?"
+        description="Confirm saving inspection data for this batch"
+        lines={confirmLines}
+        confirmText="Save"
+        cancelText="Cancel"
+        onConfirm={doSave}
+        onCancel={() => setIsConfirmOpen(false)}
+        loading={isSaving}
+      />
       <div className="container mx-auto px-4 py-6">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <Button variant="ghost" onClick={() => navigate("/")} className="flex items-center gap-2 text-slate-600">
@@ -584,10 +699,10 @@ export default function InspectionData() {
           </div>
         </div>
 
-        <div className="grid gap-2 lg:grid-cols-[340px_minmax(0,1fr)] items-start max-w-[1024px] mx-auto">
-        <div className="lg:col-start-1 lg:row-start-1 flex flex-col gap-1 h-full">
+        <div className="grid gap-2 lg:grid-cols-[450px_minmax(0,1fr)] items-start max-w-[1200px] mx-auto">
+        <div className="lg:col-start-1 lg:row-start-1 flex flex-col gap-2 h-full">
         {/* Step 1: Batch Selection */}
-        <Card className="border-2 border-blue-200 rounded-xl shadow-md self-start">
+        <Card className="border-2 border-blue-200 rounded-xl shadow-md flex-1">
           <CardHeader className="border-b bg-blue-50 px-4 py-3">
             <CardTitle className="text-lg font-semibold text-blue-900">Batch Selection</CardTitle>
           </CardHeader>
@@ -676,7 +791,7 @@ export default function InspectionData() {
         </Card>
 
         {/* Step 2: Inspection Stages */}
-        <Card id={stagesCardId} className={`border-2 border-blue-200 rounded-xl shadow-md h-full flex flex-col ${!selectedRow ? 'opacity-50' : ''}`}>
+        <Card id={stagesCardId} className={`border-2 border-blue-200 rounded-xl shadow-md flex-1 flex flex-col ${!selectedRow ? 'opacity-50' : ''}`}>
           <CardHeader className="flex flex-col gap-1 border-b bg-blue-50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="text-lg font-semibold text-blue-900">Inspection Stages</CardTitle>
             {selectedRow && (

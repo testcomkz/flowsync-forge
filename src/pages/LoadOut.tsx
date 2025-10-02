@@ -22,6 +22,9 @@ interface LoadOutRow {
   loadOutDate: string;
   actNoOper: string;
   actDate: string;
+  arrivalDate: string;
+  startDate: string;
+  endDate: string;
 }
 
 const normalizeValue = (value: unknown) =>
@@ -73,6 +76,30 @@ const toDateInputValue = (value: unknown) => {
 
 // Date input is provided by shared component `@/components/ui/date-input` now
 
+const getTodayDdMm = () => {
+  const today = new Date();
+  const dd = String(today.getDate()).padStart(2, '0');
+  const mm = String(today.getMonth() + 1).padStart(2, '0');
+  const yyyy = today.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+};
+
+const parseDateDdMmOrIso = (dateStr: string | undefined | null): Date | null => {
+  if (!dateStr) return null;
+  const s = String(dateStr).trim();
+  if (!s) return null;
+  const m = s.match(/^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*$/);
+  if (m) {
+    const dd = parseInt(m[1], 10);
+    const mm = parseInt(m[2], 10) - 1;
+    const yyyy = parseInt(m[3], 10);
+    const dt = new Date(yyyy, mm, dd);
+    return (dt.getFullYear() === yyyy && dt.getMonth() === mm && dt.getDate() === dd) ? dt : null;
+  }
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
 export default function LoadOut() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -108,9 +135,12 @@ export default function LoadOut() {
     const woIndex = findIndex(header => header.includes("wo"));
     const batchIndex = findIndex(header => header.includes("batch"));
     const statusIndex = findIndex(header => header.includes("status"));
-    const loadOutDateIndex = findIndex(header => header.includes("loadoutdate"));
-    const actNoOperIndex = findIndex(header => header.includes("actnooper"));
-    const actDateIndex = findIndex(header => header.includes("actdate"));
+    const loadOutDateIndex = findIndex(header => header.includes("loadoutdate") || header.includes("load_out_date"));
+    const actNoOperIndex = findIndex(header => header.includes("actnooper") || header.includes("act_no_oper"));
+    const actDateIndex = findIndex(header => header.includes("actdate") || header.includes("act_date"));
+    const arrivalDateIndex = findIndex(header => header.includes("arrival_date"));
+    const startDateIndex = findIndex(header => header.includes("start_date") || header.includes("startdate"));
+    const endDateIndex = findIndex(header => header.includes("end_date") || header.includes("enddate"));
 
     return tubingData.slice(1).reduce<LoadOutRow[]>((acc, rowRaw) => {
       if (!Array.isArray(rowRaw)) return acc;
@@ -133,6 +163,9 @@ export default function LoadOut() {
         loadOutDate: toDateInputValue(row[loadOutDateIndex]),
         actNoOper: normalizeValue(row[actNoOperIndex]),
         actDate: toDateInputValue(row[actDateIndex]),
+        arrivalDate: toDateInputValue(row[arrivalDateIndex]),
+        startDate: toDateInputValue(row[startDateIndex]),
+        endDate: toDateInputValue(row[endDateIndex]),
       });
       return acc;
     }, []);
@@ -208,6 +241,14 @@ export default function LoadOut() {
       setIsLoadOutDateDirty(false);
       setIsActNoOperDirty(false);
       setIsActDateDirty(false);
+      // Default today for Add page when selected row has empty dates
+      const today = getTodayDdMm();
+      if (!selectedRow.loadOutDate) {
+        setLoadOutDate(today);
+      }
+      if (!selectedRow.actDate) {
+        setActDate(today);
+      }
     }
 
     previousRowKeyRef.current = selectedRowKey;
@@ -266,6 +307,25 @@ export default function LoadOut() {
       });
       return;
     }
+
+    // Date validations: Load Out Date and AVR Date must not be earlier than Arrival/Start/End
+    const arrival = parseDateDdMmOrIso(selectedRow.arrivalDate);
+    const start = parseDateDdMmOrIso(selectedRow.startDate);
+    const end = parseDateDdMmOrIso(selectedRow.endDate);
+    const loadOut = parseDateDdMmOrIso(loadOutDate);
+    const avrDt = parseDateDdMmOrIso(actDate);
+
+    const err = (msg: string) => {
+      toast({ title: "Ошибка валидации", description: msg, variant: "destructive" });
+    };
+
+    if (arrival && loadOut && loadOut < arrival) { err("Load Out Date не может быть раньше Arrival Date"); return; }
+    if (start && loadOut && loadOut < start) { err("Load Out Date не может быть раньше Start Date"); return; }
+    if (end && loadOut && loadOut < end) { err("Load Out Date не может быть раньше End Date"); return; }
+
+    if (arrival && avrDt && avrDt < arrival) { err("AVR Date не может быть раньше Arrival Date"); return; }
+    if (start && avrDt && avrDt < start) { err("AVR Date не может быть раньше Start Date"); return; }
+    if (end && avrDt && avrDt < end) { err("AVR Date не может быть раньше End Date"); return; }
 
     setIsSaving(true);
     try {

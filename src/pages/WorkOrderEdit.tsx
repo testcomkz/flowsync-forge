@@ -81,7 +81,9 @@ export default function WorkOrderEdit() {
   const [transportCost, setTransportCost] = useState("");
 
   const [isSaving, setIsSaving] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [isCloseConfirmOpen, setIsCloseConfirmOpen] = useState(false);
   const [confirmLines, setConfirmLines] = useState<string[]>([]);
 
   const lastKeyRef = useRef<string | null>(null);
@@ -138,6 +140,24 @@ export default function WorkOrderEdit() {
       return;
     }
 
+    // Форматировать дату правильно (если это Excel serial number, преобразовать)
+    const formatDate = (dateStr: string) => {
+      if (!dateStr) return '—';
+      // Если это уже в формате dd/mm/yyyy, вернуть как есть
+      if (dateStr.includes('/')) return dateStr;
+      // Если это Excel serial number (число), преобразовать
+      const num = parseFloat(dateStr);
+      if (!isNaN(num) && num > 40000) {
+        const excelEpoch = new Date(1899, 11, 30);
+        const date = new Date(excelEpoch.getTime() + num * 86400000);
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const year = date.getFullYear();
+        return `${day}/${month}/${year}`;
+      }
+      return dateStr;
+    };
+
     const confirm = [
       `Client: ${client}`,
       `WO: ${woNo}`,
@@ -145,7 +165,7 @@ export default function WorkOrderEdit() {
       `Pipe Type: ${pipeType || '—'}`,
       `Diameter: ${diameter || '—'}`,
       `Coupling Replace: ${isCouplingReplaceWO ? 'Yes' : 'No'}`,
-      `Date: ${woDate || '—'}`,
+      `Date: ${formatDate(woDate)}`,
       `Transport: ${transport || '—'}`,
       `Planned Qty: ${plannedQty || '—'}`,
       `Price Type: ${priceType || '—'}`,
@@ -182,6 +202,7 @@ export default function WorkOrderEdit() {
         toast({ title: "Update failed", description: "Unable to update work order.", variant: "destructive" });
         return;
       }
+      setIsConfirmOpen(false); // Закрыть popup сразу после успешного сохранения
       toast({ title: "Work Order updated", description: `${woNo} saved.` });
       try {
         if (refreshDataInBackground) {
@@ -194,7 +215,35 @@ export default function WorkOrderEdit() {
       toast({ title: "Update failed", description: "Unexpected error.", variant: "destructive" });
     } finally {
       setIsSaving(false);
-      setIsConfirmOpen(false);
+    }
+  };
+
+  const handleCloseWO = () => {
+    setIsCloseConfirmOpen(true);
+  };
+
+  const doCloseWO = async () => {
+    if (!sharePointService) return;
+    setIsClosing(true);
+    try {
+      const result = await sharePointService.closeWorkOrder(client, woNo);
+      if (!result.success) {
+        toast({ title: "Cannot close", description: result.message || "Unknown error", variant: "destructive" });
+        return;
+      }
+      setIsCloseConfirmOpen(false); // Закрыть popup сразу
+      toast({ title: "Work Order closed", description: `WO ${woNo} is now closed.` });
+      try {
+        if (refreshDataInBackground) {
+          await refreshDataInBackground(sharePointService);
+        }
+      } catch {}
+      navigate("/edit-records");
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Close failed", description: "Unexpected error.", variant: "destructive" });
+    } finally {
+      setIsClosing(false);
     }
   };
 
@@ -225,6 +274,17 @@ export default function WorkOrderEdit() {
               onConfirm={doUpdate}
               onCancel={() => setIsConfirmOpen(false)}
               loading={isSaving}
+            />
+            <ConfirmDialog
+              open={isCloseConfirmOpen}
+              title="Close Work Order?"
+              description="This will mark the Work Order as Closed. You cannot close a WO without batches."
+              lines={[`Client: ${client}`, `WO: ${woNo}`]}
+              confirmText="Close WO"
+              cancelText="Cancel"
+              onConfirm={doCloseWO}
+              onCancel={() => setIsCloseConfirmOpen(false)}
+              loading={isClosing}
             />
 
             {!client || !woNo ? (
@@ -258,6 +318,8 @@ export default function WorkOrderEdit() {
                         setPriceType("");
                         setPricePerPipe("");
                         setStagePrices(createEmptyStagePrices());
+                        setPlannedQty(""); // Очистить Planned Qty для Coupling Replace
+                        setDiameter(""); // Очистить Diameter для Coupling Replace
                       }
                     }}>
                       <SelectTrigger className="h-11"><SelectValue placeholder="Select work order type"/></SelectTrigger>
@@ -292,10 +354,12 @@ export default function WorkOrderEdit() {
                     </Select>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label>Planned Qty</Label>
-                    <Input value={plannedQty} onChange={(e) => setPlannedQty(sanitizeIntegerInput(e.target.value))} inputMode="numeric" className="h-11" />
-                  </div>
+                  {woType !== "Coupling Replace" && (
+                    <div className="space-y-2">
+                      <Label>Planned Qty</Label>
+                      <Input value={plannedQty} onChange={(e) => setPlannedQty(sanitizeIntegerInput(e.target.value))} inputMode="numeric" className="h-11" />
+                    </div>
+                  )}
                 </div>
 
                 {woType === "OCTG Inspection" && (
@@ -307,7 +371,7 @@ export default function WorkOrderEdit() {
                           <SelectTrigger className="h-11"><SelectValue placeholder="Select price type"/></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="Fixed">Fixed</SelectItem>
-                            <SelectItem value="Stage Based">Stage Based</SelectItem>
+                            {pipeType !== "Sucker Rod" && <SelectItem value="Stage Based">Stage Based</SelectItem>}
                           </SelectContent>
                         </Select>
                         <p className="text-xs text-blue-600 font-medium">Use dot (.) for decimals</p>
@@ -371,9 +435,12 @@ export default function WorkOrderEdit() {
                   </div>
                 )}
 
-                <div className="flex justify-end gap-3">
-                  <Button variant="destructive" onClick={() => navigate('/edit-records')}>Cancel</Button>
-                  <Button onClick={handleSave} disabled={!isConnected || isSaving} className="min-w-[120px] bg-blue-600 hover:bg-blue-700 text-white">{isSaving ? 'Saving...' : 'Save'}</Button>
+                <div className="flex justify-between items-center">
+                  <Button variant="outline" onClick={handleCloseWO} disabled={!isConnected || isClosing} className="border-red-500 text-red-600 hover:bg-red-50">{isClosing ? 'Closing...' : 'Close Work Order'}</Button>
+                  <div className="flex gap-3">
+                    <Button variant="destructive" onClick={() => navigate('/edit-records')}>Cancel</Button>
+                    <Button onClick={handleSave} disabled={!isConnected || isSaving} className="min-w-[120px] bg-blue-600 hover:bg-blue-700 text-white">{isSaving ? 'Saving...' : 'Save'}</Button>
+                  </div>
                 </div>
               </>
             )}

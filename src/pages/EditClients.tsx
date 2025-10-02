@@ -26,6 +26,7 @@ export default function EditClients() {
   }, [clientRecords]);
 
   const [selectedOriginalName, setSelectedOriginalName] = useState<string>("");
+  const [selectedClientCode, setSelectedClientCode] = useState<string>("");
   const [name, setName] = useState("");
   const [payer, setPayer] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -39,6 +40,7 @@ export default function EditClients() {
     const rec = sorted.find(r => r.name === n);
     setName(rec?.name || "");
     setPayer(rec?.payer || "");
+    setSelectedClientCode(rec?.clientCode || "");
     // inputs are initialized only on selection to avoid resetting while typing
   };
 
@@ -154,14 +156,23 @@ export default function EditClients() {
                     onClick={() => handleSelect(item.name)}
                     className={`w-full text-left p-3 hover:bg-blue-50 ${selectedOriginalName === item.name ? 'bg-blue-100' : ''}`}
                   >
-                    <div className="font-semibold text-gray-800">{item.name}</div>
-                    <div className="text-xs text-gray-500">Payer: {item.payer || '—'}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono font-semibold text-blue-700 bg-blue-50 px-2 py-1 rounded">{item.clientCode}</span>
+                      <span className="font-semibold text-gray-800">{item.name}</span>
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">Payer: {item.payer || '—'}</div>
                   </button>
                 ))
               )}
             </div>
 
             <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="space-y-6">
+              {selectedClientCode && (
+                <div className="space-y-2">
+                  <Label className="text-gray-500">Client Code (Неизменяемый)</Label>
+                  <Input value={selectedClientCode} readOnly className="h-11 bg-gray-100 text-gray-600 font-mono font-semibold cursor-not-allowed" />
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Client Name</Label>
                 <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter client name" className="h-11" />

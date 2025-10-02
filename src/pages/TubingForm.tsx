@@ -13,9 +13,11 @@ import { useSharePointInstantData } from "@/hooks/useInstantData";
 import { useToast } from "@/hooks/use-toast";
 import { DateInputField } from "@/components/ui/date-input";
 import { safeLocalStorage } from '@/lib/safe-storage';
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 export default function TubingForm() {
   const navigate = useNavigate();
+  
   const [formData, setFormData] = useState({
     client: "",
     wo_no: "",
@@ -35,6 +37,8 @@ export default function TubingForm() {
   const [nextBatch, setNextBatch] = useState<string>("");
   const [lastPipeTo, setLastPipeTo] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [confirmLines, setConfirmLines] = useState<string[]>([]);
   const { user } = useAuth();
   const { sharePointService, isConnected, refreshDataInBackground } = useSharePoint();
   const { clients, workOrders: cachedWorkOrders, tubingData: cachedTubingData } = useSharePointInstantData();
@@ -261,7 +265,7 @@ export default function TubingForm() {
     }
   }, [nextBatch]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
     console.log('🚀 Starting tubing form submission...');
@@ -307,6 +311,16 @@ export default function TubingForm() {
       return;
     }
 
+    // Validate arrival date
+    if (!formData.arrival_date || !formData.arrival_date.trim()) {
+      toast({
+        title: "Ошибка валидации",
+        description: "Выберите дату прибытия (Arrival Date)",
+        variant: "destructive",
+      });
+      return;
+    }
+
     // Lock: recompute expected batch at submit-time to prevent skipping
     const recomputed = recomputeNextBatchInfo();
     const currentBatchLabel = nextBatch || formData.batch;
@@ -333,6 +347,22 @@ export default function TubingForm() {
 
     const batchToUse = currentBatchLabel;
 
+    // Показать confirmation dialog
+    setConfirmLines([
+      `Client: ${formData.client}`,
+      `WO: ${formData.wo_no}`,
+      `Batch: ${batchToUse}`,
+      `Diameter: ${formData.diameter || '—'}`,
+      `Qty: ${formData.qty}`,
+      `Rack: ${formData.rack}`,
+      `Arrival Date: ${formData.arrival_date}`
+    ]);
+    setIsConfirmOpen(true);
+  };
+
+  const doSave = async () => {
+    if (!sharePointService) return;
+    const batchToUse = nextBatch || formData.batch;
     setIsLoading(true);
     console.log('📤 Submitting tubing record with batch:', batchToUse);
     console.log('📋 Full form data being sent:', {
@@ -388,13 +418,14 @@ export default function TubingForm() {
             console.warn("Failed to refresh SharePoint data after tubing save:", refreshError);
           }
         }
-
-        // Reset form
+        setIsConfirmOpen(false); // Закрыть popup сразу
+        
+        // Clear form
         setFormData({
-          client: "",
-          wo_no: "",
+          client: formData.client,
+          wo_no: formData.wo_no,
           batch: "",
-          diameter: "",
+          diameter: formData.diameter,
           qty: "",
           pipe_from: "",
           pipe_to: "",
@@ -404,7 +435,7 @@ export default function TubingForm() {
         });
       } else {
         toast({
-          title: "❌ Не удалось сохранить в Excel",
+          title: "🔒 SharePoint файл заблокирован",
           description: (
             <div className="space-y-2">
               <p className="font-bold text-white">
@@ -485,6 +516,17 @@ export default function TubingForm() {
             <CardTitle className="text-2xl font-bold text-green-800">Tubing Registry</CardTitle>
           </CardHeader>
           <CardContent>
+            <ConfirmDialog
+              open={isConfirmOpen}
+              title="Add Tubing Record?"
+              description="Confirm adding this batch to Tubing Registry"
+              lines={confirmLines}
+              confirmText="Save"
+              cancelText="Cancel"
+              onConfirm={doSave}
+              onCancel={() => setIsConfirmOpen(false)}
+              loading={isLoading}
+            />
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Basic Information */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -536,23 +578,14 @@ export default function TubingForm() {
                 </div>
 
                 <div>
-                  <Label htmlFor="diameter">Diameter *</Label>
-                  <Select 
-                    value={formData.diameter} 
-                    onValueChange={(value) => handleInputChange("diameter", value)}
-                    disabled={!formData.wo_no}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select diameter" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableDiameters.map((diameter) => (
-                        <SelectItem key={diameter} value={diameter}>
-                          {diameter}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="diameter">Diameter</Label>
+                  <Input
+                    id="diameter"
+                    value={formData.diameter || "—"}
+                    readOnly
+                    className="h-11 w-full rounded-md border border-gray-300 bg-gray-100 px-3 text-gray-600 shadow-sm cursor-not-allowed"
+                    placeholder="Auto-filled from WO"
+                  />
                 </div>
 
                 <div>
