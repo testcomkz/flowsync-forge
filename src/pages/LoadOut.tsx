@@ -339,7 +339,6 @@ export default function LoadOut() {
     const start = parseDateDdMmOrIso(selectedRow.startDate);
     const end = parseDateDdMmOrIso(selectedRow.endDate);
     const loadOut = parseDateDdMmOrIso(loadOutDate);
-    const avrDt = parseDateDdMmOrIso(actDate);
 
     const err = (msg: string) => {
       toast({ title: "Ошибка валидации", description: msg, variant: "destructive" });
@@ -348,10 +347,6 @@ export default function LoadOut() {
     if (arrival && loadOut && loadOut < arrival) { err("Load Out Date не может быть раньше Arrival Date"); return; }
     if (start && loadOut && loadOut < start) { err("Load Out Date не может быть раньше Start Date"); return; }
     if (end && loadOut && loadOut < end) { err("Load Out Date не может быть раньше End Date"); return; }
-
-    if (arrival && avrDt && avrDt < arrival) { err("AVR Date не может быть раньше Arrival Date"); return; }
-    if (start && avrDt && avrDt < start) { err("AVR Date не может быть раньше Start Date"); return; }
-    if (end && avrDt && avrDt < end) { err("AVR Date не может быть раньше End Date"); return; }
 
     setIsSaving(true);
     try {
@@ -525,6 +520,7 @@ export default function LoadOut() {
                   <div className="space-y-2">
                     <Label>Load Out Date</Label>
                     <DateInputField
+                      value={loadOutDate}
                       onChange={handleLoadOutDateChange}
                       disabled={isFormDisabled || !selectedBatch}
                       placeholder="dd/mm/yyyy"
