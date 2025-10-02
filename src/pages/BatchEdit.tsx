@@ -49,7 +49,7 @@ const uniqueSorted = (values: string[]) => Array.from(new Set(values.filter(Bool
 export default function BatchEdit() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { tubingData } = useSharePointInstantData();
+  const { tubingData, workOrders } = useSharePointInstantData();
   const { sharePointService, isConnected, refreshDataInBackground } = useSharePoint();
 
   const [selectedClient, setSelectedClient] = useState("");
@@ -80,6 +80,32 @@ export default function BatchEdit() {
       ),
     [tubingRecords, selectedClient]
   );
+
+  // Build set of CLOSED work orders from cached 'wo' sheet
+  const closedWOs = useMemo(() => {
+    const set = new Set<string>();
+    if (!Array.isArray(workOrders) || workOrders.length < 2) return set;
+    const headers = workOrders[0] as unknown[];
+    const norm = (v: unknown) => (v === null || v === undefined ? '' : String(v).trim().toLowerCase());
+    const clientIdx = headers.findIndex(h => norm(h).includes('client'));
+    const woIdx = headers.findIndex(h => norm(h).includes('wo') && !norm(h).includes('date'));
+    const statusIdx = headers.findIndex(h => {
+      const s = norm(h).replace(/[^a-z0-9]+/g, '_');
+      return s === 'wo_status' || s === 'status' || s.endsWith('_status');
+    });
+    if (clientIdx === -1 || woIdx === -1 || statusIdx === -1) return set;
+    const targetClient = (selectedClient || '').trim().toLowerCase();
+    for (let i = 1; i < workOrders.length; i++) {
+      const row = workOrders[i] as unknown[];
+      const c = norm(row[clientIdx]);
+      const wo = String(row[woIdx] ?? '').trim();
+      const st = norm(row[statusIdx]);
+      if ((!selectedClient || c === targetClient) && wo && st.includes('closed')) {
+        set.add(wo);
+      }
+    }
+    return set;
+  }, [workOrders, selectedClient]);
 
   const availableBatches = useMemo(
     () =>
@@ -321,16 +347,21 @@ export default function BatchEdit() {
                     <SelectValue placeholder="Select Work Order" />
                   </SelectTrigger>
                   <SelectContent>
-                    {availableWorkOrders.map(order => (
-                      <SelectItem key={order} value={order}>{order}</SelectItem>
-                    ))}
+                    {availableWorkOrders.map(order => {
+                      const isClosed = closedWOs.has(order);
+                      return (
+                        <SelectItem key={order} value={order} disabled={isClosed}>
+                          {order}{isClosed ? ' (Closed)' : ''}
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               </div>
 
               <div className="space-y-2">
                 <Label>Batch</Label>
-                <Select value={selectedBatch} onValueChange={setSelectedBatch} disabled={!selectedWorkOrder || availableBatches.length === 0}>
+                <Select value={selectedBatch} onValueChange={setSelectedBatch} disabled={!selectedWorkOrder || availableBatches.length === 0 || closedWOs.has(selectedWorkOrder)}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select Batch" />
                   </SelectTrigger>
@@ -382,7 +413,7 @@ export default function BatchEdit() {
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <Label>Edit Action</Label>
-                  <Select value={selectedStatus} onValueChange={v => setSelectedStatus(v as StatusOption["value"])} disabled={availableStatusOptions.length === 0 || isChangingQty}>
+                  <Select value={selectedStatus} onValueChange={v => setSelectedStatus(v as StatusOption["value"])} disabled={availableStatusOptions.length === 0 || isChangingQty || (selectedWorkOrder ? closedWOs.has(selectedWorkOrder) : false)}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select edit action" />
                     </SelectTrigger>
@@ -402,9 +433,9 @@ export default function BatchEdit() {
 
             <div className="flex justify-end gap-2">
               {isChangingQty ? (
-                <Button onClick={handleOnlyChangeQty} disabled={!selectedRecord} className="min-w-[160px]">Only Change Qty</Button>
+                <Button onClick={handleOnlyChangeQty} disabled={!selectedRecord || (selectedWorkOrder ? closedWOs.has(selectedWorkOrder) : false)} className="min-w-[160px]">Only Change Qty</Button>
               ) : (
-                <Button onClick={handleContinue} disabled={!selectedRecord || !selectedStatus} className="min-w-[160px] bg-blue-600 hover:bg-blue-700 text-white">Continue to Edit</Button>
+                <Button onClick={handleContinue} disabled={!selectedRecord || !selectedStatus || (selectedWorkOrder ? closedWOs.has(selectedWorkOrder) : false)} className="min-w-[160px] bg-blue-600 hover:bg-blue-700 text-white">Continue to Edit</Button>
               )}
             </div>
           </CardContent>

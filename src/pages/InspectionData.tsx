@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Header } from "@/components/layout/Header";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,12 +19,17 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 type StageKey = "rattling" | "external" | "hydro" | "mpi" | "drift" | "emi" | "marking";
 type ScrapKey = "rattling" | "external" | "jetting" | "mpi" | "drift" | "emi";
 
-interface ArrivedBatchRow {
+interface ArrivedBatchEntry {
   key: string;
   client: string;
+  clientCode?: string;
   wo_no: string;
   batch: string;
   status: string;
+  row: unknown[];
+}
+
+interface ArrivedBatchRow extends ArrivedBatchEntry {
   arrival_date?: string;
   class_1?: string;
   class_2?: string;
@@ -43,6 +48,32 @@ interface ArrivedBatchRow {
   marking_qty: number | null;
   pipe_from?: number | null;
   pipe_to?: number | null;
+}
+
+interface TubingColumnIndexes {
+  clientIndex: number;
+  clientCodeIndex: number;
+  woIndex: number;
+  batchIndex: number;
+  statusIndex: number;
+  baseQtyIndex: number;
+  class1Index: number;
+  class2Index: number;
+  class3Index: number;
+  repairIndex: number;
+  scrapIndex: number;
+  startDateIndex: number;
+  endDateIndex: number;
+  rattlingQtyIndex: number;
+  externalQtyIndex: number;
+  hydroQtyIndex: number;
+  mpiQtyIndex: number;
+  driftQtyIndex: number;
+  emiQtyIndex: number;
+  markingQtyIndex: number;
+  arrivalDateIndex: number;
+  pipeFromIndex: number;
+  pipeToIndex: number;
 }
 
 const STAGE_ORDER: StageKey[] = [
@@ -129,7 +160,7 @@ export default function InspectionData() {
   const { toast } = useToast();
   const { user } = useAuth();
   const { sharePointService, isConnected, refreshDataInBackground } = useSharePoint();
-  const { tubingData } = useSharePointInstantData();
+  const { tubingData, clientRecords, workOrders } = useSharePointInstantData();
 
   const [selectedClient, setSelectedClient] = useState("");
   const [selectedWorkOrder, setSelectedWorkOrder] = useState("");
@@ -161,20 +192,31 @@ export default function InspectionData() {
   // Track if inspection stages are filled to enable inspection data
   const [stagesCompleted, setStagesCompleted] = useState(false);
 
-  const arrivedBatches = useMemo(() => {
+  const clientCodeToName = useMemo(() => {
+    const map = new Map<string, string>();
+    if (Array.isArray(clientRecords)) {
+      clientRecords.forEach(record => {
+        if (record?.clientCode) {
+          map.set(record.clientCode.trim(), (record.name || record.clientCode || "").trim());
+        }
+      });
+    }
+    return map;
+  }, [clientRecords]);
+
+  const tubingMeta = useMemo(() => {
     if (!Array.isArray(tubingData) || tubingData.length < 2) {
-      return [] as ArrivedBatchRow[];
+      return null as { headers: unknown[]; indexes: TubingColumnIndexes } | null;
     }
 
     const headersRow = tubingData[0];
     if (!Array.isArray(headersRow)) {
-      return [] as ArrivedBatchRow[];
+      return null;
     }
 
     const headers = headersRow as unknown[];
     const normalizeHeader = (header: unknown) =>
       header === null || header === undefined ? "" : String(header).trim().toLowerCase();
-    // Normalize header to alphanumeric-only for robust matching: "Rattling Qty" => "rattlingqty"
     const normalizeKey = (header: unknown) =>
       (header === null || header === undefined ? "" : String(header).toLowerCase())
         .replace(/\s+/g, "")
@@ -184,101 +226,137 @@ export default function InspectionData() {
     const findIndex = (predicate: (header: string) => boolean) =>
       headers.findIndex(header => predicate(normalizeHeader(header)));
 
-    const clientIndex = findIndex(h => normalizeKey(h).includes("client"));
-    const woIndex = findIndex(h => normalizeKey(h).includes("workorder") || h.includes("wo"));
-    const batchIndex = findIndex(h => normalizeKey(h).includes("batch"));
-    const statusIndex = findIndex(h => normalizeKey(h).includes("status"));
-    // Try to find a base Qty column (not stage-specific). Be generous with matching.
-    const baseQtyIndex = findIndex(h => {
-      const k = normalizeKey(h);
-      return k === "qty" || k === "quantity" || (k.includes("qty") && !k.includes("scrap") && !k.includes("rattling") && !k.includes("external") && !k.includes("hydro") && !k.includes("mpi") && !k.includes("drift") && !k.includes("emi") && !k.includes("marking"));
-    });
-    const class1Index = findIndex(h => normalizeKey(h).includes("class1"));
-    const class2Index = findIndex(h => normalizeKey(h).includes("class2"));
-    const class3Index = findIndex(h => normalizeKey(h).includes("class3"));
-    const repairIndex = findIndex(h => normalizeKey(h).includes("repair"));
-    const scrapIndex = findIndex(h => normalizeKey(h) === "scrap" || normalizeKey(h).endsWith("scrap"));
-    const startDateIndex = findIndex(h => normalizeKey(h).includes("startdate"));
-    const endDateIndex = findIndex(h => normalizeKey(h).includes("enddate"));
-    const rattlingQtyIndex = findIndex(h => normalizeKey(h).includes("rattlingqty"));
-    const externalQtyIndex = findIndex(h => normalizeKey(h).includes("externalqty"));
-    const hydroQtyIndex = findIndex(h => normalizeKey(h).includes("hydroqty"));
-    const mpiQtyIndex = findIndex(h => normalizeKey(h).includes("mpiqty"));
-    const driftQtyIndex = findIndex(h => normalizeKey(h).includes("driftqty"));
-    const emiQtyIndex = findIndex(h => normalizeKey(h).includes("emiqty"));
-    const markingQtyIndex = findIndex(h => normalizeKey(h).includes("markingqty"));
-    const pipeFromIndex = findIndex(h => normalizeKey(h).includes("pipefrom"));
-    const pipeToIndex = findIndex(h => normalizeKey(h).includes("pipeto"));
+    const indexes: TubingColumnIndexes = {
+      clientIndex: findIndex(h => normalizeKey(h) === "client"),
+      clientCodeIndex: findIndex(h => normalizeKey(h).includes("clientcode")),
+      woIndex: findIndex(h => normalizeKey(h).includes("workorder") || h.includes("wo")),
+      batchIndex: findIndex(h => normalizeKey(h).includes("batch")),
+      statusIndex: findIndex(h => normalizeKey(h).includes("status")),
+      baseQtyIndex: findIndex(h => {
+        const k = normalizeKey(h);
+        return k === "qty" || k === "quantity" || (k.includes("qty") && !k.includes("scrap") && !k.includes("rattling") && !k.includes("external") && !k.includes("hydro") && !k.includes("mpi") && !k.includes("drift") && !k.includes("emi") && !k.includes("marking"));
+      }),
+      class1Index: findIndex(h => normalizeKey(h).includes("class1")),
+      class2Index: findIndex(h => normalizeKey(h).includes("class2")),
+      class3Index: findIndex(h => normalizeKey(h).includes("class3")),
+      repairIndex: findIndex(h => normalizeKey(h).includes("repair")),
+      scrapIndex: findIndex(h => normalizeKey(h) === "scrap" || normalizeKey(h).endsWith("scrap")),
+      startDateIndex: findIndex(h => normalizeKey(h).includes("startdate")),
+      endDateIndex: findIndex(h => normalizeKey(h).includes("enddate")),
+      rattlingQtyIndex: findIndex(h => normalizeKey(h).includes("rattlingqty")),
+      externalQtyIndex: findIndex(h => normalizeKey(h).includes("externalqty")),
+      hydroQtyIndex: findIndex(h => normalizeKey(h).includes("hydroqty")),
+      mpiQtyIndex: findIndex(h => normalizeKey(h).includes("mpiqty")),
+      driftQtyIndex: findIndex(h => normalizeKey(h).includes("driftqty")),
+      emiQtyIndex: findIndex(h => normalizeKey(h).includes("emiqty")),
+      markingQtyIndex: findIndex(h => normalizeKey(h).includes("markingqty")),
+      arrivalDateIndex: findIndex(h => normalizeKey(h).includes("arrivaldate")),
+      pipeFromIndex: findIndex(h => normalizeKey(h).includes("pipefrom")),
+      pipeToIndex: findIndex(h => normalizeKey(h).includes("pipeto")),
+    };
 
-    if (statusIndex === -1 || clientIndex === -1 || woIndex === -1 || batchIndex === -1) {
-      return [] as ArrivedBatchRow[];
+    if (indexes.statusIndex === -1 || indexes.clientIndex === -1 || indexes.woIndex === -1 || indexes.batchIndex === -1) {
+      return null;
     }
 
-    const rows: ArrivedBatchRow[] = [];
+    return { headers, indexes };
+  }, [tubingData]);
 
-    tubingData.slice(1).forEach(item => {
-      if (!Array.isArray(item)) {
-        return;
-      }
+  const arrivedBatches = useMemo(() => {
+    if (!tubingMeta) {
+      return [] as ArrivedBatchEntry[];
+    }
+
+    const rows: ArrivedBatchEntry[] = [];
+    const { indexes } = tubingMeta;
+
+    for (let rowIdx = 1; rowIdx < tubingData.length; rowIdx++) {
+      const item = tubingData[rowIdx];
+      if (!Array.isArray(item)) continue;
+
       const row = item as unknown[];
-      const rawStatus = normalizeString(row[statusIndex]);
-      const normalizedStatus = rawStatus.toLowerCase();
-      if (!normalizedStatus.includes("arriv")) {
-        return;
+      const rawStatus = normalizeString(row[indexes.statusIndex]);
+      if (!rawStatus.toLowerCase().includes("arriv")) {
+        continue;
       }
 
-      const client = normalizeString(row[clientIndex]);
-      const wo_no = normalizeString(row[woIndex]);
-      const batch = normalizeString(row[batchIndex]);
-      // Compute a reliable base quantity for the batch:
-      const rattlingBase = rattlingQtyIndex !== -1 ? toNumeric(row[rattlingQtyIndex]) : null;
-      const baseFromQty = baseQtyIndex !== -1 ? toNumeric(row[baseQtyIndex]) : null;
-      const pFrom = pipeFromIndex !== -1 ? toNumeric(row[pipeFromIndex]) : null;
-      const pTo = pipeToIndex !== -1 ? toNumeric(row[pipeToIndex]) : null;
-      const baseFromPipes = pFrom !== null && pTo !== null && pTo >= pFrom ? (pTo - pFrom + 1) : null;
-      // As a final fallback, use the maximum among stage quantities if they are present in the row
-      const stageCandidates: Array<number | null> = [
-        rattlingQtyIndex !== -1 ? toNumeric(row[rattlingQtyIndex]) : null,
-        externalQtyIndex !== -1 ? toNumeric(row[externalQtyIndex]) : null,
-        hydroQtyIndex !== -1 ? toNumeric(row[hydroQtyIndex]) : null,
-        mpiQtyIndex !== -1 ? toNumeric(row[mpiQtyIndex]) : null,
-        driftQtyIndex !== -1 ? toNumeric(row[driftQtyIndex]) : null,
-        emiQtyIndex !== -1 ? toNumeric(row[emiQtyIndex]) : null,
-        markingQtyIndex !== -1 ? toNumeric(row[markingQtyIndex]) : null
-      ];
-      const stageMax = stageCandidates.filter(v => v !== null).length
-        ? Math.max(...(stageCandidates.filter((v): v is number => v !== null)))
-        : null;
-      const computedBase = rattlingBase ?? baseFromQty ?? baseFromPipes ?? stageMax ?? null;
+      const rawClient = indexes.clientIndex !== -1 ? normalizeString(row[indexes.clientIndex]) : "";
+      const rawClientCode = indexes.clientCodeIndex !== -1 ? normalizeString(row[indexes.clientCodeIndex]) : "";
+      const lookupName = rawClientCode ? (clientCodeToName.get(rawClientCode) || rawClientCode) : "";
+      const client = rawClient && rawClient !== "#N/A" ? rawClient : lookupName || rawClient;
+      const wo_no = normalizeString(row[indexes.woIndex]);
+      const batch = normalizeString(row[indexes.batchIndex]);
+
+      if (!client || !wo_no || !batch) {
+        continue;
+      }
 
       rows.push({
-        key: `${client}||${wo_no}||${batch}`,
+        key: `${rawClientCode || client}||${wo_no}||${batch}`,
         client,
+        clientCode: rawClientCode || undefined,
         wo_no,
         batch,
         status: rawStatus || "Arrived",
-        class_1: normalizeString(class1Index === -1 ? "" : row[class1Index]),
-        class_2: normalizeString(class2Index === -1 ? "" : row[class2Index]),
-        class_3: normalizeString(class3Index === -1 ? "" : row[class3Index]),
-        repair: normalizeString(repairIndex === -1 ? "" : row[repairIndex]),
-        scrap: normalizeString(scrapIndex === -1 ? "" : row[scrapIndex]),
-        start_date: normalizeString(startDateIndex === -1 ? "" : row[startDateIndex]),
-        end_date: normalizeString(endDateIndex === -1 ? "" : row[endDateIndex]),
-        baseQty: computedBase,
-        rattling_qty: rattlingBase,
-        external_qty: toNumeric(externalQtyIndex === -1 ? null : row[externalQtyIndex]),
-        hydro_qty: toNumeric(hydroQtyIndex === -1 ? null : row[hydroQtyIndex]),
-        mpi_qty: toNumeric(mpiQtyIndex === -1 ? null : row[mpiQtyIndex]),
-        drift_qty: toNumeric(driftQtyIndex === -1 ? null : row[driftQtyIndex]),
-        emi_qty: toNumeric(emiQtyIndex === -1 ? null : row[emiQtyIndex]),
-        marking_qty: toNumeric(markingQtyIndex === -1 ? null : row[markingQtyIndex]),
-        pipe_from: pFrom,
-        pipe_to: pTo,
+        row,
       });
-    });
+    }
 
     return rows;
-  }, [tubingData]);
+  }, [clientCodeToName, tubingMeta, tubingData]);
+
+  const buildDetailedRow = useCallback(
+    (entry: ArrivedBatchEntry): ArrivedBatchRow | null => {
+      if (!tubingMeta) return null;
+
+      const { indexes } = tubingMeta;
+      const row = entry.row;
+
+      const getString = (index: number) => (index !== -1 ? normalizeString(row[index]) : "");
+      const getNumber = (index: number) => (index !== -1 ? toNumeric(row[index]) : null);
+
+      const rattlingBase = getNumber(indexes.rattlingQtyIndex);
+      const baseFromQty = getNumber(indexes.baseQtyIndex);
+      const pFrom = getNumber(indexes.pipeFromIndex);
+      const pTo = getNumber(indexes.pipeToIndex);
+      const baseFromPipes = pFrom !== null && pTo !== null && pTo >= pFrom ? (pTo - pFrom + 1) : null;
+      const stageCandidates: Array<number | null> = [
+        getNumber(indexes.rattlingQtyIndex),
+        getNumber(indexes.externalQtyIndex),
+        getNumber(indexes.hydroQtyIndex),
+        getNumber(indexes.mpiQtyIndex),
+        getNumber(indexes.driftQtyIndex),
+        getNumber(indexes.emiQtyIndex),
+        getNumber(indexes.markingQtyIndex),
+      ];
+      const stageValues = stageCandidates.filter((v): v is number => v !== null);
+      const stageMax = stageValues.length ? Math.max(...stageValues) : null;
+      const computedBase = rattlingBase ?? baseFromQty ?? baseFromPipes ?? stageMax ?? null;
+
+      return {
+        ...entry,
+        arrival_date: getString(indexes.arrivalDateIndex),
+        class_1: getString(indexes.class1Index),
+        class_2: getString(indexes.class2Index),
+        class_3: getString(indexes.class3Index),
+        repair: getString(indexes.repairIndex),
+        scrap: getString(indexes.scrapIndex),
+        start_date: getString(indexes.startDateIndex),
+        end_date: getString(indexes.endDateIndex),
+        baseQty: computedBase,
+        rattling_qty: rattlingBase,
+        external_qty: getNumber(indexes.externalQtyIndex),
+        hydro_qty: getNumber(indexes.hydroQtyIndex),
+        mpi_qty: getNumber(indexes.mpiQtyIndex),
+        drift_qty: getNumber(indexes.driftQtyIndex),
+        emi_qty: getNumber(indexes.emiQtyIndex),
+        marking_qty: getNumber(indexes.markingQtyIndex),
+        pipe_from: pFrom,
+        pipe_to: pTo,
+      };
+    },
+    [tubingMeta]
+  );
 
   const availableRows = useMemo(
     () => arrivedBatches.filter(row => !processedKeys.includes(row.key)),
@@ -303,6 +381,32 @@ export default function InspectionData() {
       });
     return Array.from(unique);
   }, [availableRows, selectedClient]);
+
+  // WO closed detection from cached 'wo' sheet
+  const closedWOs = useMemo(() => {
+    const set = new Set<string>();
+    if (!Array.isArray(workOrders) || workOrders.length < 2) return set;
+    const headers = workOrders[0] as unknown[];
+    const norm = (v: unknown) => (v === null || v === undefined ? '' : String(v).trim().toLowerCase());
+    const clientIdx = headers.findIndex(h => norm(h).includes('client'));
+    const woIdx = headers.findIndex(h => norm(h).includes('wo') && !norm(h).includes('date'));
+    const statusIdx = headers.findIndex(h => {
+      const s = norm(h).replace(/[^a-z0-9]+/g, '_');
+      return s === 'wo_status' || s === 'status' || s.endsWith('_status');
+    });
+    if (clientIdx === -1 || woIdx === -1 || statusIdx === -1) return set;
+    const targetClient = (selectedClient || '').trim().toLowerCase();
+    for (let i = 1; i < workOrders.length; i++) {
+      const row = workOrders[i] as unknown[];
+      const c = norm(row[clientIdx]);
+      const wo = String(row[woIdx] ?? '').trim();
+      const st = norm(row[statusIdx]);
+      if ((!selectedClient || c === targetClient) && wo && st.includes('closed')) {
+        set.add(wo);
+      }
+    }
+    return set;
+  }, [workOrders, selectedClient]);
 
   const availableBatches = useMemo(() => {
     if (!selectedClient || !selectedWorkOrder) return [] as ArrivedBatchRow[];
@@ -335,8 +439,13 @@ export default function InspectionData() {
     }
 
     const match = availableBatches.find(row => row.batch === selectedBatch);
-    setSelectedRow(match ?? null);
-  }, [availableBatches, selectedBatch]);
+    if (!match) {
+      setSelectedRow(null);
+      return;
+    }
+    const detailed = buildDetailedRow(match);
+    setSelectedRow(detailed ?? null);
+  }, [availableBatches, buildDetailedRow, selectedBatch]);
 
   useEffect(() => {
     if (!selectedRow) {
@@ -490,78 +599,80 @@ export default function InspectionData() {
     if (!endDate) { toast({ title: "Ошибка", description: "Выберите End Date", variant: "destructive" }); return; }
     
     // Валидация дат
-    const parseDate = (dateStr: string | number | undefined | null) => {
-      if (dateStr === null || dateStr === undefined || dateStr === '') return null;
-      
-      // Если это число (Excel serial date)
-      if (typeof dateStr === 'number' && Number.isFinite(dateStr)) {
+    const parseDateToUtc = (dateStr: string | number | undefined | null): number | null => {
+      if (dateStr === null || dateStr === undefined) return null;
+
+      const ensureFourDigitYear = (year: number) => {
+        if (year >= 1000) return year;
+        // Treat 2-digit years >= 50 as 1900s, otherwise as 2000s
+        if (year >= 50 && year <= 99) return 1900 + year;
+        if (year >= 0 && year <= 49) return 2000 + year;
+        return year;
+      };
+
+      const buildUtc = (year: number, month: number, day: number) => {
+        if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+        if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+        return Date.UTC(year, month - 1, day);
+      };
+
+      if (typeof dateStr === "number" && Number.isFinite(dateStr)) {
         const excelEpoch = Date.UTC(1899, 11, 30);
-        const millis = excelEpoch + dateStr * 86400000;
-        return new Date(millis);
+        const millis = excelEpoch + Math.floor(dateStr) * 86400000;
+        const dt = new Date(millis);
+        return buildUtc(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
       }
-      
+
       const str = String(dateStr).trim();
-      if (!str) return null;
-      
-      // Формат dd/mm/yyyy
-      const ddmmyyyy = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-      if (ddmmyyyy) {
-        const day = parseInt(ddmmyyyy[1], 10);
-        const month = parseInt(ddmmyyyy[2], 10) - 1; // месяцы с 0
-        const year = parseInt(ddmmyyyy[3], 10);
-        const dt = new Date(year, month, day);
-        // Проверка валидности даты
-        if (dt.getFullYear() === year && dt.getMonth() === month && dt.getDate() === day) {
-          return dt;
-        }
-        return null;
-      }
-      
-      // ISO формат yyyy-mm-dd
-      const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!str || str === "—") return null;
+
+      const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})(?:T.*)?$/);
       if (iso) {
         const year = parseInt(iso[1], 10);
-        const month = parseInt(iso[2], 10) - 1;
+        const month = parseInt(iso[2], 10);
         const day = parseInt(iso[3], 10);
-        const dt = new Date(year, month, day);
-        if (dt.getFullYear() === year && dt.getMonth() === month && dt.getDate() === day) {
-          return dt;
-        }
-        return null;
+        return buildUtc(year, month, day);
       }
-      
-      // Fallback для других форматов
-      const d = new Date(str);
-      return Number.isNaN(d.getTime()) ? null : d;
+
+      const ddmmyyyy = str.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+      if (ddmmyyyy) {
+        const day = parseInt(ddmmyyyy[1], 10);
+        const month = parseInt(ddmmyyyy[2], 10);
+        const year = ensureFourDigitYear(parseInt(ddmmyyyy[3], 10));
+        return buildUtc(year, month, day);
+      }
+
+      const numeric = Number(str);
+      if (!Number.isNaN(numeric) && Number.isFinite(numeric)) {
+        const excelEpoch = Date.UTC(1899, 11, 30);
+        const millis = excelEpoch + Math.floor(numeric) * 86400000;
+        const dt = new Date(millis);
+        return buildUtc(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
+      }
+
+      const parsed = new Date(str);
+      if (!Number.isNaN(parsed.getTime())) {
+        return buildUtc(parsed.getFullYear(), parsed.getMonth() + 1, parsed.getDate());
+      }
+
+      return null;
     };
 
-    const arrivalDateObj = parseDate(selectedRow.arrival_date);
-    const startDateObj = parseDate(startDate);
-    const endDateObj = parseDate(endDate);
+    const arrivalDateUtc = parseDateToUtc(selectedRow.arrival_date);
+    const startDateUtc = parseDateToUtc(startDate);
+    const endDateUtc = parseDateToUtc(endDate);
 
-    // Debug logging
-    console.log('🔍 Date Validation:', {
-      arrivalRaw: selectedRow.arrival_date,
-      arrivalParsed: arrivalDateObj,
-      startRaw: startDate,
-      startParsed: startDateObj,
-      endRaw: endDate,
-      endParsed: endDateObj
-    });
-
-    if (startDateObj && endDateObj && startDateObj > endDateObj) {
+    if (startDateUtc !== null && endDateUtc !== null && startDateUtc > endDateUtc) {
       toast({ title: "Ошибка", description: "End Date не может быть раньше Start Date", variant: "destructive" });
       return;
     }
 
-    if (arrivalDateObj && startDateObj && startDateObj < arrivalDateObj) {
-      console.log('❌ Start Date < Arrival Date:', startDateObj, '<', arrivalDateObj);
+    if (arrivalDateUtc !== null && startDateUtc !== null && startDateUtc < arrivalDateUtc) {
       toast({ title: "Ошибка", description: "Start Date не может быть раньше Arrival Date", variant: "destructive" });
       return;
     }
 
-    if (arrivalDateObj && endDateObj && endDateObj < arrivalDateObj) {
-      console.log('❌ End Date < Arrival Date:', endDateObj, '<', arrivalDateObj);
+    if (arrivalDateUtc !== null && endDateUtc !== null && endDateUtc < arrivalDateUtc) {
       toast({ title: "Ошибка", description: "End Date не может быть раньше Arrival Date", variant: "destructive" });
       return;
     }
@@ -741,11 +852,14 @@ export default function InspectionData() {
                     {availableWorkOrders.length === 0 && (
                       <div className="px-2 py-1 text-sm text-muted-foreground">No arrived batches</div>
                     )}
-                    {availableWorkOrders.map(wo => (
-                      <SelectItem key={wo} value={wo}>
-                        {wo}
-                      </SelectItem>
-                    ))}
+                    {availableWorkOrders.map(wo => {
+                      const isClosed = closedWOs.has(wo);
+                      return (
+                        <SelectItem key={wo} value={wo} disabled={isClosed}>
+                          {wo}{isClosed ? ' (Closed)' : ''}
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               </div>
@@ -755,7 +869,7 @@ export default function InspectionData() {
                 <Select
                   value={selectedBatch || ""}
                   onValueChange={value => setSelectedBatch(value || "")}
-                  disabled={!selectedClient || !selectedWorkOrder}
+                  disabled={!selectedClient || !selectedWorkOrder || closedWOs.has(selectedWorkOrder)}
                 >
                   <SelectTrigger className="h-8 px-2 text-sm w-full">
                     <SelectValue placeholder="Choose arrived batch" />

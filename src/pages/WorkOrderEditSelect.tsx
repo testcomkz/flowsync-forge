@@ -10,12 +10,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { useSharePoint } from "@/contexts/SharePointContext";
 import { useSharePointInstantData } from "@/hooks/useInstantData";
+import { parseTubingRecords } from "@/lib/tubing-records";
 
 export default function WorkOrderEditSelect() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { sharePointService } = useSharePoint();
-  const { clientRecords, clients } = useSharePointInstantData();
+  const { clientRecords, clients, tubingData, suckerRodData, couplingData } = useSharePointInstantData();
+
+  const tubingRecords = useMemo(() => parseTubingRecords(tubingData ?? []), [tubingData]);
+  const suckerRecords = useMemo(() => parseTubingRecords(suckerRodData ?? []), [suckerRodData]);
 
   const availableClients = useMemo(() => {
     const names = clientRecords.length > 0 ? clientRecords.map(r => r.name) : clients;
@@ -39,12 +43,92 @@ export default function WorkOrderEditSelect() {
     })();
   }, [sharePointService, selectedClient]);
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (!selectedClient || !selectedWO) {
       toast({ title: "Select Client and Work Order", variant: "destructive" });
       return;
     }
-    navigate("/workorder-edit", { state: { client: selectedClient, wo_no: selectedWO } });
+    try {
+      let hasTubingBatches = false;
+      let hasSuckerRodBatches = false;
+      let hasCouplingBatches = false;
+
+      if (sharePointService) {
+        try {
+          const presence = await sharePointService.getBatchPresence(selectedClient, selectedWO);
+          hasTubingBatches = presence.hasTubing;
+          hasSuckerRodBatches = presence.hasSuckerRod;
+          hasCouplingBatches = presence.hasCoupling;
+        } catch (error) {
+          console.warn("Failed to detect batch presence via service, falling back to cache", error);
+        }
+      }
+
+      if (!hasTubingBatches && !hasSuckerRodBatches && !hasCouplingBatches) {
+        const relatedTubing = tubingRecords.filter(r => r.client === selectedClient && r.wo_no === selectedWO);
+        const relatedSucker = suckerRecords.filter(r => r.client === selectedClient && r.wo_no === selectedWO);
+        hasTubingBatches = relatedTubing.length > 0;
+        hasSuckerRodBatches = relatedSucker.length > 0;
+        if (!hasCouplingBatches && Array.isArray(couplingData) && couplingData.length > 1) {
+          const headers = couplingData[0] as unknown[];
+          const normalize = (value: unknown) => (value === null || value === undefined ? "" : String(value).trim().toLowerCase());
+          const clientIdx = headers.findIndex(h => normalize(h).includes("client"));
+          const woIdx = headers.findIndex(h => normalize(h).includes("wo"));
+          if (clientIdx !== -1 && woIdx !== -1) {
+            const targetClient = selectedClient.trim().toLowerCase();
+            const targetWo = selectedWO.trim().toLowerCase();
+            hasCouplingBatches = couplingData.slice(1).some(row => {
+              const rowArr = Array.isArray(row) ? row : [];
+              return normalize(rowArr[clientIdx]) === targetClient && normalize(rowArr[woIdx]) === targetWo;
+            });
+          }
+        }
+      }
+
+      if (hasCouplingBatches) {
+        toast({
+          title: "This Work Order cannot be changed",
+          description: "Coupling batches already exist for this Work Order. Editing is disabled.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (hasTubingBatches && hasSuckerRodBatches) {
+        toast({
+          title: "Mixed batches detected",
+          description: "Work Order содержит и Tubing, и Sucker Rod. Свяжитесь с админом для ручной обработки.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Read WO record to derive coupling flag and current defaults
+      const rec = sharePointService ? await sharePointService.getWorkOrderRecord(selectedClient, selectedWO) : null;
+      const get = (k: string) => (rec && rec[k] != null ? String(rec[k]) : "");
+      const couplingRaw = (get("coupling_replace") || get("coupling") || get("coupling replace") || "").toLowerCase();
+      const couplingFlag = couplingRaw.startsWith("y");
+
+      // Derive initial UI defaults
+      const woType = couplingFlag ? "Coupling Replace" : "OCTG Inspection";
+      const pipeType = hasTubingBatches
+        ? "Tubing"
+        : hasSuckerRodBatches
+          ? "Sucker Rod"
+          : (get("type") || get("pipe_type") || get("type_of_pipe"));
+
+      navigate("/workorder-edit", {
+        state: {
+          client: selectedClient,
+          wo_no: selectedWO,
+          preLocks: { hasTubingBatches, hasSuckerRodBatches, hasCouplingBatches: couplingFlag },
+          derivedDefaults: { woType, pipeType }
+        }
+      });
+    } catch (e) {
+      console.error(e);
+      navigate("/workorder-edit", { state: { client: selectedClient, wo_no: selectedWO } });
+    }
   };
 
   return (

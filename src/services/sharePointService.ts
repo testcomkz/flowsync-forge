@@ -17,6 +17,50 @@ export class SharePointService {
     this.graphClient = Client.initWithMiddleware({ authProvider });
   }
 
+  async openWorkOrder(client: string, wo_no: string): Promise<{ success: boolean; message?: string }> {
+    try {
+      const usedInfo = await this.getUsedRangeInfo('wo');
+      if (!usedInfo?.values?.length) {
+        return { success: false, message: 'Work order data not found' };
+      }
+
+      const { values, meta } = usedInfo;
+      const woHeaders = Array.isArray(values[0]) ? (values[0] as unknown[]) : [];
+      const normalize = (v: unknown) => (v === null || v === undefined ? '' : String(v).trim().toLowerCase());
+      const canonicalize = (v: string) => v.replace(/[^a-z0-9]+/g, '_').replace(/_{2,}/g, '_').replace(/^_|_$/g, '');
+      const canonicalHeaders = woHeaders.map(h => canonicalize(normalize(h)));
+
+      const woClientIdx = canonicalHeaders.findIndex(h => h.includes('client'));
+      const woNoIdx = canonicalHeaders.findIndex(h => (h === 'wo_no' || h === 'wo') && !h.includes('date'));
+      const statusIdx = canonicalHeaders.findIndex(h => h === 'wo_status' || h === 'wostatus' || h === 'status');
+
+      if (statusIdx === -1) {
+        return { success: false, message: 'WO_Status column not found in Excel' };
+      }
+
+      const rowIndex = values.findIndex((row, idx) =>
+        idx !== 0 &&
+        normalize(row[woClientIdx]) === normalize(client) &&
+        normalize(row[woNoIdx]) === normalize(wo_no)
+      );
+
+      if (rowIndex === -1) {
+        return { success: false, message: 'Work order not found' };
+      }
+
+      const rowNumber = meta.startRow + rowIndex;
+      const colNumber = meta.startCol + statusIdx;
+      const colLetters = this.indexToColLetters(colNumber);
+      const range = `${colLetters}${rowNumber}`;
+
+      const success = await this.writeExcelData('wo', range, [['Open']]);
+      return success ? { success: true } : { success: false, message: 'Failed to update status' };
+    } catch (error) {
+      console.error('❌ Error opening work order:', error);
+      return { success: false, message: 'Unexpected error' };
+    }
+  }
+
   async getWorkOrderRecord(client: string, wo_no: string): Promise<Record<string, any> | null> {
     try {
       const usedInfo = await this.getUsedRangeInfo('wo');
@@ -60,6 +104,56 @@ export class SharePointService {
       console.error('❌ Error fetching work order record:', error);
       return null;
     }
+  }
+
+  async getBatchPresence(client: string, wo_no: string): Promise<{ hasTubing: boolean; hasSuckerRod: boolean; hasCoupling: boolean }> {
+    const normalize = (value: unknown) => (value === null || value === undefined ? '' : String(value).trim());
+    const normalizeLower = (value: unknown) => normalize(value).toLowerCase();
+    const canonicalize = (header: string) => header.replace(/[\s-]+/g, '_').replace(/_{2,}/g, '_');
+
+    const matchInSheet = async (sheet: 'tubing' | 'sucker_rod' | 'coupling') => {
+      try {
+        const usedInfo = await this.getUsedRangeInfo(sheet);
+        if (!usedInfo?.values?.length) return false;
+
+        const { values } = usedInfo;
+        const headers = values[0] as unknown[];
+
+        const findColumn = (predicate: (normalized: string, canonical: string) => boolean) =>
+          headers.findIndex(header => {
+            const normalizedHeader = normalizeLower(header);
+            const canonicalHeader = canonicalize(normalizedHeader);
+            return predicate(normalizedHeader, canonicalHeader);
+          });
+
+        const clientIdx = findColumn((normalized, canonical) => canonical.includes('client'));
+        const woIdx = findColumn((normalized, canonical) => canonical.includes('wo'));
+
+        if (clientIdx === -1 || woIdx === -1) {
+          return false;
+        }
+
+        const targetClient = normalizeLower(client);
+        const targetWo = normalizeLower(wo_no);
+
+        return values.slice(1).some(row => {
+          const rowClient = normalizeLower(row[clientIdx]);
+          const rowWo = normalizeLower(row[woIdx]);
+          return rowClient === targetClient && rowWo === targetWo;
+        });
+      } catch (error) {
+        console.warn(`Failed to detect batches in sheet ${sheet}:`, error);
+        return false;
+      }
+    };
+
+    const [hasTubing, hasSuckerRod, hasCoupling] = await Promise.all([
+      matchInSheet('tubing'),
+      matchInSheet('sucker_rod'),
+      matchInSheet('coupling'),
+    ]);
+
+    return { hasTubing, hasSuckerRod, hasCoupling };
   }
 
   // Read a range (values and formulas) from Excel
@@ -581,6 +675,9 @@ export class SharePointService {
       
       // Отладка: показать все данные формы
       console.log('🔍 DEBUG: Form data received:', data);
+      console.log('🔍 DEBUG: data.type =', data.type);
+      console.log('🔍 DEBUG: data.pipe_type =', data.pipe_type);
+      console.log('🔍 DEBUG: data.wo_type =', data.wo_type);
       console.log('🔍 DEBUG: data.diameter =', data.diameter);
       console.log('🔍 DEBUG: data.wo_date =', data.wo_date);
       
@@ -599,22 +696,37 @@ export class SharePointService {
         const isOctg = (data.wo_type || '').toLowerCase().includes('octg');
         const transport = data.transport || '';
 
+        // TYPE КОЛОНКА - САМАЯ ПЕРВАЯ ПРОВЕРКА! Колонка C в Excel
+        // СТРОГАЯ проверка - только точное совпадение canonical === 'type'
+        if (canonical === 'type') {
+          const typeValue = data.type || data.pipe_type || '';
+          console.log(`   ✅ TYPE column (C): "${typeValue}"`);
+          return typeValue;
+        }
+        
         if ((canonical === 'wo_no' || canonical === 'wo') && !canonical.includes('date')) {
           console.log(`   ✅ WO_No column: ${data.wo_no}`);
           return data.wo_no;
         }
-        // Если встретили колонку ClientCode, записываем ClientCode вместо имени
+        
+        // ClientCode - записываем код клиента
         if (canonical === 'clientcode' || canonical === 'client_code') {
           console.log(`   ✅ ClientCode column: ${clientCode}`);
           return clientCode;
         }
-        if (canonical.includes('client')) {
-          console.log(`   ℹ️ Client column (name for display): ${data.client}`);
-          return data.client;
+        
+        // Type_Of_Pipe - если есть отдельная колонка
+        if (canonical === 'type_of_pipe' || canonical === 'pipe_type') {
+          const typeValue = data.type || data.pipe_type || '';
+          console.log(`   ✅ Type_Of_Pipe column: "${typeValue}"`);
+          return typeValue;
         }
-        if (canonical === 'type' || canonical.includes('type_of_pipe') || canonical.includes('pipe_type')) {
-          console.log(`   ✅ Pipe type column: ${data.type || data.pipe_type}`);
-          return data.type || data.pipe_type || '';
+        
+        // Client колонка - оставляем ПУСТОЙ, формула Excel заполнит
+        // ПРОВЕРЯЕМ В САМОМ КОНЦЕ, чтобы не перехватить другие колонки
+        if (canonical === 'client' || (canonical.includes('client') && !canonical.includes('code') && !canonical.includes('type'))) {
+          console.log(`   ℹ️ Client column: EMPTY (Excel formula will fill)`);
+          return '';
         }
         if (canonical.includes('diameter')) {
           console.log(`   ✅ Diameter column: ${data.diameter}`);
@@ -637,8 +749,9 @@ export class SharePointService {
           return data.planned_qty || '';
         }
         if (canonical.includes('price_type') || canonical === 'pricetype') {
-          console.log(`   ✅ Price Type column: ${data.price_type}`);
-          return data.price_type || (data.wo_type === 'Coupling Replace' ? 'Coupling Replace' : '');
+          const priceTypeValue = data.price_type || (data.wo_type === 'Coupling Replace' ? 'Fixed' : '');
+          console.log(`   ✅ Price Type column: ${priceTypeValue}`);
+          return priceTypeValue;
         }
         if (canonical === 'price' || canonical.includes('price_for_each_pipe')) {
           const priceValue = data.wo_type === 'Coupling Replace'
@@ -780,6 +893,8 @@ export class SharePointService {
     originalWo?: string;
     client: string;
     wo_no: string;
+    clientCode?: string;
+    client_code?: string;
     type?: string;
     diameter?: string;
     coupling_replace?: string;
@@ -874,7 +989,9 @@ export class SharePointService {
         }
       };
 
-      applyValue(header => header.includes('client'), data.client);
+      // Never write text into Client column (formula). Only write client_code when explicitly provided.
+      applyValue((header, canonical) => canonical === 'clientcode' || canonical === 'client_code', data.clientCode ?? data.client_code);
+      // Никогда не записываем текст в колонку Client, чтобы не сбить формулу
       applyValue(header => header.includes('wo') && !header.includes('workorderdate'), data.wo_no);
       applyValue(header => header.includes('type'), data.type);
       applyValue(header => header.includes('diameter') || header.includes('диаметр'), data.diameter);
@@ -958,7 +1075,39 @@ export class SharePointService {
         }
       }
 
+
+      const copyFormulaFromNeighbor = async (row: number, columnIndex: number) => {
+        const metaInfo = usedInfo?.meta;
+        if (!metaInfo) return;
+        const startRowIdx = metaInfo.startRow ?? 1;
+        const endRowIdx = metaInfo.endRow ?? (startRowIdx + values.length - 1);
+        const sourceRow = row - 1 >= startRowIdx ? row - 1 : (row + 1 <= endRowIdx ? row + 1 : null);
+        if (!sourceRow) return;
+
+        const startLetters = this.indexToColLetters(metaInfo.startCol);
+        const endLetters = this.indexToColLetters(metaInfo.startCol + headersRow.length - 1);
+        const sourceRange = `${startLetters}${sourceRow}:${endLetters}${sourceRow}`;
+        const sourceData = await this.readExcelRange('wo', sourceRange);
+        const sourceFormulas = sourceData?.formulas?.[0] || [];
+        const sourceValues = sourceData?.values?.[0] || [];
+
+        const colLetter = this.indexToColLetters(metaInfo.startCol + columnIndex);
+        const targetRange = `${colLetter}${row}:${colLetter}${row}`;
+        const formula = sourceFormulas[columnIndex];
+        if (typeof formula === 'string' && formula.trim().startsWith('=')) {
+          await this.writeExcelFormulas('wo', targetRange, [[formula]]);
+        } else {
+          const value = sourceValues[columnIndex] ?? '';
+          await this.writeExcelData('wo', targetRange, [[value]]);
+        }
+      };
+
       if (overallSuccess) {
+        const rowNumber = meta.startRow + rowIndex;
+        if (clientIndex !== -1) {
+          await copyFormulaFromNeighbor(rowNumber, clientIndex);
+        }
+
         safeLocalStorage.removeItem('sharepoint_cached_workorders');
         safeLocalStorage.removeItem('sharepoint_cached_workorders_timestamp');
       }
@@ -1179,7 +1328,8 @@ export class SharePointService {
         }
       };
 
-      applyValue(header => header.includes('client'), data.client);
+      applyValue(header => header.includes('clientcode') || header.includes('client_code'), data.client);
+      // Не записываем имя клиента в колонку Client, чтобы формулы оставались нетронутыми
       applyValue(header => header.includes('wo'), data.wo_no);
       applyValue(header => header.includes('batch'), data.batch);
       applyValue(header => header.includes('diameter') || header.includes('диаметр'), data.diameter ?? '');
@@ -1397,6 +1547,51 @@ export class SharePointService {
       // Абсолютный номер строки в Excel для позиции вставки (включая смещение usedRange)
       const absoluteInsertRow = startRow + (insertPosition - 1);
 
+      const canonicalize = (value: string) =>
+        value
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '_')
+          .replace(/_{2,}/g, '_')
+          .replace(/^_|_$/g, '');
+      const canonicalHeaders = headers.map(header => canonicalize(String(header ?? '')));
+      const typeIndex = canonicalHeaders.findIndex(header => header === 'type');
+      const clientIndex = canonicalHeaders.findIndex(header => header === 'client');
+
+      const typeColumnNumber = typeIndex >= 0 ? startColIdx + typeIndex : null;
+      const typeColumnLetter = typeColumnNumber ? this.indexToColLetters(typeColumnNumber) : null;
+      const extractTypeValue = (row: string[]) => (typeIndex >= 0 ? row[typeIndex] ?? '' : '');
+      const clientColumnNumber = clientIndex >= 0 ? startColIdx + clientIndex : null;
+      const clientColumnLetter = clientColumnNumber ? this.indexToColLetters(clientColumnNumber) : null;
+
+      const copyFormulaForColumns = async (targetRow: number, columnIndexes: number[]) => {
+        if (!columnIndexes.length) return;
+        const meta = usedInfo?.meta;
+        const startRowIdx = meta?.startRow ?? 1;
+        const endRowIdx = meta?.endRow ?? (startRowIdx + currentData.length - 1);
+        const sourceRow = targetRow - 1 >= startRowIdx ? targetRow - 1 : (targetRow + 1 <= endRowIdx ? targetRow + 1 : null);
+        if (!sourceRow) return;
+
+        const startLetters = this.indexToColLetters(startColIdx);
+        const endLetters = this.indexToColLetters(startColIdx + headers.length - 1);
+        const sourceRange = `${startLetters}${sourceRow}:${endLetters}${sourceRow}`;
+        const sourceData = await this.readExcelRange('wo', sourceRange);
+        const sourceFormulas = sourceData?.formulas?.[0] || [];
+        const sourceValues = sourceData?.values?.[0] || [];
+
+        for (const idx of columnIndexes) {
+          if (idx < 0) continue;
+          const colLetter = this.indexToColLetters(startColIdx + idx);
+          const targetRange = `${colLetter}${targetRow}:${colLetter}${targetRow}`;
+          const formula = sourceFormulas[idx];
+          if (typeof formula === 'string' && formula.trim().startsWith('=')) {
+            await this.writeExcelFormulas('wo', targetRange, [[formula]]);
+          } else {
+            const value = sourceValues[idx] ?? '';
+            await this.writeExcelData('wo', targetRange, [[value]]);
+          }
+        }
+      };
+
       // Если вставляем в конец, просто добавляем в следующую пустую строку
       if (insertPosition > currentData.length) {
         const appendRow = startRow + currentData.length; // следующая пустая строка после usedRange
@@ -1412,6 +1607,18 @@ export class SharePointService {
         const cleanedData = [normalizeRow(newRowData)];
         const ok = await this.writeExcelData('wo', range, cleanedData);
         if (ok) {
+          if (typeColumnLetter) {
+            const typeValue = extractTypeValue(cleanedData[0]);
+            if (typeValue) {
+              const typeRange = `${typeColumnLetter}${appendRow}:${typeColumnLetter}${appendRow}`;
+              await this.writeExcelData('wo', typeRange, [[typeValue]]);
+            }
+          }
+          if (clientColumnLetter) {
+            const clientRange = `${clientColumnLetter}${appendRow}:${clientColumnLetter}${appendRow}`;
+            await this.writeExcelData('wo', clientRange, [['']]);
+            await copyFormulaForColumns(appendRow, [clientIndex]);
+          }
           console.log(`✅ Work order appended successfully!`);
           safeLocalStorage.removeItem('sharepoint_cached_wo');
           safeLocalStorage.removeItem('sharepoint_cache_timestamp_wo');
@@ -1447,6 +1654,20 @@ export class SharePointService {
       if (!writeNewRowSuccess) {
         console.log('❌ Failed to write new work order row');
         return false;
+      }
+
+      if (typeColumnLetter) {
+        const typeValue = extractTypeValue(cleanedNewRow[0]);
+        if (typeValue) {
+          const typeRange = `${typeColumnLetter}${absoluteInsertRow}:${typeColumnLetter}${absoluteInsertRow}`;
+          await this.writeExcelData('wo', typeRange, [[typeValue]]);
+        }
+      }
+
+      if (clientColumnLetter) {
+        const clientRange = `${clientColumnLetter}${absoluteInsertRow}:${clientColumnLetter}${absoluteInsertRow}`;
+        await this.writeExcelData('wo', clientRange, [['']]);
+        await copyFormulaForColumns(absoluteInsertRow, [clientIndex]);
       }
 
       console.log(`✅ Successfully inserted work order for client ${client} at absolute row ${absoluteInsertRow}`);
@@ -1572,7 +1793,25 @@ export class SharePointService {
       const segments: { start: number; end: number; values: any[] }[] = [];
       let currentSegment: { start: number; end: number; values: any[] } | null = null;
 
-      newRowData.forEach((value, index) => {
+      const canonicalHeaders = headers.map(header => {
+        if (header === null || header === undefined) return '';
+        return String(header)
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '_')
+          .replace(/_{2,}/g, '_')
+          .replace(/^_|_$/g, '');
+      });
+      const clientColumnIndex = canonicalHeaders.findIndex(h => h === 'client');
+
+      const normalizedRowData = newRowData.map((value, index) => {
+        if (clientColumnIndex === index) {
+          return '';
+        }
+        return value;
+      });
+
+      normalizedRowData.forEach((value, index) => {
         const hasValue = !(value === null || value === undefined || (typeof value === 'string' && value.trim() === ''));
         if (!hasValue) {
           currentSegment = null;
@@ -2291,7 +2530,38 @@ export class SharePointService {
         }
       }
 
+      const copyFormulaFromNeighbor = async (row: number, columnIndex: number) => {
+        const metaInfo = usedInfo?.meta;
+        if (!metaInfo) return;
+        const startRowIdx = metaInfo.startRow ?? 1;
+        const endRowIdx = metaInfo.endRow ?? (startRowIdx + values.length - 1);
+        const sourceRow = row - 1 >= startRowIdx ? row - 1 : (row + 1 <= endRowIdx ? row + 1 : null);
+        if (!sourceRow) return;
+
+        const startLetters = this.indexToColLetters(metaInfo.startCol);
+        const endLetters = this.indexToColLetters(metaInfo.startCol + headersRow.length - 1);
+        const sourceRange = `${startLetters}${sourceRow}:${endLetters}${sourceRow}`;
+        const sourceData = await this.readExcelRange('tubing', sourceRange);
+        const sourceFormulas = sourceData?.formulas?.[0] || [];
+        const sourceValues = sourceData?.values?.[0] || [];
+
+        const colLetter = this.indexToColLetters(metaInfo.startCol + columnIndex);
+        const targetRange = `${colLetter}${row}:${colLetter}${row}`;
+        const formula = sourceFormulas[columnIndex];
+        if (typeof formula === 'string' && formula.trim().startsWith('=')) {
+          await this.writeExcelFormulas('tubing', targetRange, [[formula]]);
+        } else {
+          const value = sourceValues[columnIndex] ?? '';
+          await this.writeExcelData('tubing', targetRange, [[value]]);
+        }
+      };
+
       if (overallSuccess) {
+        const rowNumber = meta.startRow + rowIndex;
+        if (clientIndex !== -1) {
+          await copyFormulaFromNeighbor(rowNumber, clientIndex);
+        }
+
         safeLocalStorage.removeItem('sharepoint_cached_tubing');
         safeLocalStorage.removeItem('sharepoint_cache_timestamp_tubing');
       }

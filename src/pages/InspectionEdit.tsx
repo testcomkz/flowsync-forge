@@ -424,6 +424,7 @@ export default function InspectionEdit() {
     setIsSaving(true);
     try {
       const num = (v: string) => Number(sanitizeNumberString(v)) || 0;
+      const totalScrapNow = computedScrapTotal;
       
       // Пересчитать Pipe_To на основе нового Qty
       const pipeFrom = Number(sanitizeNumberString(record.pipe_from || "0"));
@@ -440,6 +441,7 @@ export default function InspectionEdit() {
         class_2: String(num(class2)),
         class_3: String(num(class3)),
         repair: String(num(repair)),
+        scrap: totalScrapNow,
         start_date: startDate,
         end_date: endDate,
         rattling_qty: Number(calculatedStageQuantities.rattling || 0),

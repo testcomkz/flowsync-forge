@@ -104,7 +104,7 @@ export default function LoadOut() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
-  const { tubingData } = useSharePointInstantData();
+  const { tubingData, workOrders } = useSharePointInstantData();
   const { sharePointService, isConnected, refreshDataInBackground } = useSharePoint();
 
   const [selectedClient, setSelectedClient] = useState("");
@@ -188,6 +188,32 @@ export default function LoadOut() {
     });
     return Array.from(unique).sort((a, b) => a.localeCompare(b));
   }, [loadOutRows, selectedClient]);
+
+  // Closed WO set from cached 'wo' sheet
+  const closedWOs = useMemo(() => {
+    const set = new Set<string>();
+    if (!Array.isArray(workOrders) || workOrders.length < 2) return set;
+    const headers = workOrders[0] as unknown[];
+    const norm = (v: unknown) => (v === null || v === undefined ? '' : String(v).trim().toLowerCase());
+    const clientIdx = headers.findIndex(h => norm(h).includes('client'));
+    const woIdx = headers.findIndex(h => norm(h).includes('wo') && !norm(h).includes('date'));
+    const statusIdx = headers.findIndex(h => {
+      const s = norm(h).replace(/[^a-z0-9]+/g, '_');
+      return s === 'wo_status' || s === 'status' || s.endsWith('_status');
+    });
+    if (clientIdx === -1 || woIdx === -1 || statusIdx === -1) return set;
+    const targetClient = (selectedClient || '').trim().toLowerCase();
+    for (let i = 1; i < workOrders.length; i++) {
+      const row = workOrders[i] as unknown[];
+      const c = norm(row[clientIdx]);
+      const wo = String(row[woIdx] ?? '').trim();
+      const st = norm(row[statusIdx]);
+      if ((!selectedClient || c === targetClient) && wo && st.includes('closed')) {
+        set.add(wo);
+      }
+    }
+    return set;
+  }, [workOrders, selectedClient]);
 
   const availableBatches = useMemo(() => {
     const unique = new Set<string>();
@@ -451,19 +477,24 @@ export default function LoadOut() {
                       }}
                       disabled={isFormDisabled || availableWorkOrders.length === 0}
                     >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select work order" />
+                      <SelectTrigger className="h-8 px-2 text-sm w-full">
+                        <SelectValue placeholder="Choose work order" />
                       </SelectTrigger>
                       <SelectContent>
-                        {availableWorkOrders.map(wo => (
-                          <SelectItem key={wo} value={wo}>
-                            {wo}
-                          </SelectItem>
-                        ))}
+                        {availableWorkOrders.length === 0 && (
+                          <div className="px-2 py-1 text-sm text-muted-foreground">No arrived batches</div>
+                        )}
+                        {availableWorkOrders.map(wo => {
+                          const isClosed = closedWOs.has(wo);
+                          return (
+                            <SelectItem key={wo} value={wo} disabled={isClosed}>
+                              {wo}{isClosed ? ' (Closed)' : ''}
+                            </SelectItem>
+                          );
+                        })}
                       </SelectContent>
                     </Select>
                   </div>
-
                   <div className="space-y-2">
                     <Label>Batch</Label>
                     <Select
@@ -473,17 +504,19 @@ export default function LoadOut() {
                         isFormDisabled ||
                         availableBatches.length === 0 ||
                         !selectedClient ||
-                        !selectedWorkOrder
+                        !selectedWorkOrder ||
+                        closedWOs.has(selectedWorkOrder)
                       }
                     >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select batch" />
+                      <SelectTrigger className="h-8 px-2 text-sm w-full" disabled={closedWOs.has(selectedWorkOrder)}>
+                        <SelectValue placeholder="Choose batch" />
                       </SelectTrigger>
                       <SelectContent>
+                        {availableBatches.length === 0 && (
+                          <div className="px-2 py-1 text-sm text-muted-foreground">No arrived batches</div>
+                        )}
                         {availableBatches.map(batch => (
-                          <SelectItem key={batch} value={batch}>
-                            {batch}
-                          </SelectItem>
+                          <SelectItem key={batch} value={batch}>{batch}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -492,7 +525,6 @@ export default function LoadOut() {
                   <div className="space-y-2">
                     <Label>Load Out Date</Label>
                     <DateInputField
-                      value={loadOutDate}
                       onChange={handleLoadOutDateChange}
                       disabled={isFormDisabled || !selectedBatch}
                       placeholder="dd/mm/yyyy"

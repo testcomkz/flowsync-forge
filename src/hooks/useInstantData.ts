@@ -48,6 +48,8 @@ export const useSharePointInstantData = () => {
   const [clientRecords, setClientRecords] = useInstantData<ClientRecord[]>('sharepoint_cached_client_records', []);
   const [workOrders, setWorkOrders] = useInstantData<any[]>('sharepoint_cached_workorders', []);
   const [tubingData, setTubingData] = useInstantData<any[]>('sharepoint_cached_tubing', []);
+  const [suckerRodData, setSuckerRodData] = useInstantData<any[]>('sharepoint_cached_sucker_rod', []);
+  const [couplingData, setCouplingData] = useInstantData<any[]>('sharepoint_cached_coupling', []);
   
   // Force re-sync on component mount to ensure fresh data
   useEffect(() => {
@@ -57,6 +59,8 @@ export const useSharePointInstantData = () => {
         const cachedClientRecords = safeLocalStorage.getItem("sharepoint_cached_client_records");
         const cachedWorkOrders = safeLocalStorage.getItem("sharepoint_cached_workorders");
         const cachedTubing = safeLocalStorage.getItem("sharepoint_cached_tubing");
+        const cachedSuckerRod = safeLocalStorage.getItem("sharepoint_cached_sucker_rod");
+        const cachedCoupling = safeLocalStorage.getItem("sharepoint_cached_coupling");
         
         if (cachedClients) {
           const clientsData = JSON.parse(cachedClients);
@@ -83,13 +87,23 @@ export const useSharePointInstantData = () => {
           const tubingDataParsed = JSON.parse(cachedTubing);
           if (tubingDataParsed.length > 0) setTubingData(tubingDataParsed);
         }
+
+        if (cachedSuckerRod) {
+          const suckerRodParsed = JSON.parse(cachedSuckerRod);
+          if (suckerRodParsed.length > 0) setSuckerRodData(suckerRodParsed);
+        }
+
+        if (cachedCoupling) {
+          const couplingParsed = JSON.parse(cachedCoupling);
+          if (couplingParsed.length > 0) setCouplingData(couplingParsed);
+        }
       } catch (error) {
         console.warn('Failed to sync SharePoint data:', error);
       }
     };
 
     syncData();
-  }, [setClients, setWorkOrders, setTubingData]);
-  
-  return { clients, clientRecords, workOrders, tubingData };
-};
+  }, [setClients, setClientRecords, setWorkOrders, setTubingData, setSuckerRodData, setCouplingData]);
+
+  return { clients, clientRecords, workOrders, tubingData, suckerRodData, couplingData };
+}

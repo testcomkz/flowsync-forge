@@ -90,6 +90,8 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
       setCachedClientRecords(arrayData as ClientRecord[]);
     } else if (key === "sharepoint_cached_workorders") {
       setCachedWorkOrders(arrayData);
+    } else if (key === "sharepoint_cached_tubing" || key === "sharepoint_cached_sucker_rod" || key === "sharepoint_cached_coupling") {
+      // Consumers read these through useSharePointInstantData, which taps localStorage directly.
     }
 
     try {
@@ -185,6 +187,7 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
       const cachedClientsData = safeLocalStorage.getItem("sharepoint_cached_clients");
       const cachedClientRecordsData = safeLocalStorage.getItem("sharepoint_cached_client_records");
       const cachedWorkOrdersData = safeLocalStorage.getItem("sharepoint_cached_workorders");
+      // tubing / sucker rod caches consumed via hooks
       
       if (cachedClientsData) {
         try {
@@ -304,7 +307,7 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
         console.warn('Failed to load work orders data:', error);
       }
 
-      // Загружаем tubing registry для SharePoint Viewer
+      // Загружаем tubing / sucker rod / coupling registry
       try {
         const tubingData = await service.getExcelData('tubing');
         if (tubingData && tubingData.length > 0) {
@@ -313,8 +316,25 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
       } catch (error) {
         console.warn('Failed to load tubing registry:', error);
       }
-      
-      // Сохраняем время последнего обновления
+
+      try {
+        const suckerRodData = await service.getExcelData('sucker_rod');
+        if (suckerRodData && suckerRodData.length > 0) {
+          saveToCache('sharepoint_cached_sucker_rod', suckerRodData);
+        }
+      } catch (error) {
+        console.warn('Failed to load sucker rod registry:', error);
+      }
+
+      try {
+        const couplingData = await service.getExcelData('coupling');
+        if (couplingData && couplingData.length > 0) {
+          saveToCache('sharepoint_cached_coupling', couplingData);
+        }
+      } catch (error) {
+        console.warn('Failed to load coupling registry:', error);
+      }
+
       safeLocalStorage.setItem("sharepoint_last_refresh", now.toISOString());
       
     } catch (error) {
@@ -410,6 +430,7 @@ export const SharePointProvider: React.FC<SharePointProviderProps> = ({ children
       "sharepoint_cached_client_records",
       "sharepoint_cached_workorders",
       "sharepoint_cached_tubing",
+      "sharepoint_cached_sucker_rod",
       "sharepoint_clients_timestamp",
       "sharepoint_cached_client_records_timestamp",
       "sharepoint_workorders_timestamp",

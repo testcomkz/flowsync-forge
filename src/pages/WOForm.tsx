@@ -128,12 +128,17 @@ export default function WOForm() {
 
   // Removed Payer auto-fill logic per requirement: Payer is managed only in Add Clients / Client Edits
 
-  // When Sucker Rod is selected, Diameter is not applicable -> clear it
+  // When Sucker Rod is selected, Diameter is not applicable -> clear it, and lock Price Type to Fixed
   useEffect(() => {
-    if (formData.pipe_type === "Sucker Rod" && formData.diameter) {
-      setFormData(prev => ({ ...prev, diameter: "" }));
+    if (formData.pipe_type === "Sucker Rod") {
+      if (formData.diameter) {
+        setFormData(prev => ({ ...prev, diameter: "" }));
+      }
+      if (formData.price_type !== "Fixed") {
+        setFormData(prev => ({ ...prev, price_type: "Fixed", price_per_pipe: "", stage_prices: createEmptyStagePrices() }));
+      }
     }
-  }, [formData.pipe_type, formData.diameter]);
+  }, [formData.pipe_type, formData.diameter, formData.price_type]);
 
   const handleFieldChange = (field: keyof typeof formData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -300,13 +305,13 @@ export default function WOForm() {
 
     if (isDuplicate) {
       toast({
-        title: "🚫 Work Order уже существует",
+        title: "Дубликат Work Order",
         description: (
           <div className="space-y-2">
             <p className="font-bold text-white">
-              Work Order <span className="bg-white text-red-600 px-2 py-1 rounded font-mono font-bold">{trimmedWo}</span> уже существует для клиента <span className="bg-white text-blue-600 px-2 py-1 rounded font-bold">{formData.client}</span>
+              Ворк ордер <span className="bg-white text-red-600 px-2 py-1 rounded font-mono font-bold">{trimmedWo}</span> уже имеется для клиента <span className="bg-white text-blue-600 px-2 py-1 rounded font-bold">{formData.client}</span>.
             </p>
-            <p className="text-sm text-white font-medium">💡 Пожалуйста, выберите другой номер Work Order</p>
+            <p className="text-sm text-white font-medium">Пожалуйста, напишите другой ворк ордер.</p>
           </div>
         ),
         variant: "destructive",
@@ -332,6 +337,13 @@ export default function WOForm() {
       replacement_price: isCouplingReplace ? formData.replacement_price : "",
       coupling_replace: isCouplingReplace ? "Yes" : "No",
     };
+
+    // ОТЛАДКА: показать что именно отправляется в payload
+    console.log('🔍 FORM DEBUG - isCouplingReplace:', isCouplingReplace);
+    console.log('🔍 FORM DEBUG - isOctgInspection:', isOctgInspection);
+    console.log('🔍 FORM DEBUG - formData.pipe_type:', formData.pipe_type);
+    console.log('🔍 FORM DEBUG - payload.type:', payload.type);
+    console.log('🔍 FORM DEBUG - payload.pipe_type:', payload.pipe_type);
     // Open in-page confirm dialog
     setConfirmLines([
       `Client: ${formData.client}`,
@@ -351,6 +363,7 @@ export default function WOForm() {
 
     setIsLoading(true);
     try {
+
       const success = await sharePointService.createWorkOrder(payload);
 
       if (success) {
@@ -393,29 +406,26 @@ export default function WOForm() {
         resetStagePrices();
 
         if (preservedClient) {
-          const updatedWorkOrders = await sharePointService.getWorkOrdersByClient(preservedClient);
-          setExistingWorkOrders(updatedWorkOrders);
+          sharePointService.getWorkOrdersByClient(preservedClient)
+            .then(updatedWorkOrders => {
+              setExistingWorkOrders(updatedWorkOrders);
+            })
+            .catch(err => {
+              console.warn("Failed to refresh work orders after save:", err);
+            });
         }
 
-        try {
-          if (sharePointService && refreshDataInBackground) {
-            safeLocalStorage.removeItem("sharepoint_last_refresh");
-            await refreshDataInBackground(sharePointService);
-          }
-        } catch (e) {
-          console.warn("Auto Update Data encountered an error:", e);
+        if (sharePointService && refreshDataInBackground) {
+          safeLocalStorage.removeItem("sharepoint_last_refresh");
+          refreshDataInBackground(sharePointService).catch(e => {
+            console.warn("Auto Update Data encountered an error:", e);
+          });
         }
       } else {
         toast({
-          title: "🔒 SharePoint файл заблокирован",
-          description: (
-            <div className="space-y-2">
-              <p className="font-bold text-white">Кто-то редактирует Excel файл в данный момент</p>
-              <p className="text-sm text-white font-medium">⏳ Попробуйте через несколько минут, когда файл освободится</p>
-            </div>
-          ),
+          title: "❌ Ошибка сохранения",
+          description: "Попробуйте ещё раз. Если проблема повторяется, обратитесь к администратору.",
           variant: "destructive",
-          duration: 8000,
         });
       }
     } catch (error) {
@@ -542,6 +552,9 @@ export default function WOForm() {
                           handleFieldChange("pipe_type", value);
                           if (value === "Sucker Rod") {
                             handleFieldChange("diameter", "");
+                            handleFieldChange("price_type", "Fixed");
+                            handleFieldChange("price_per_pipe", "");
+                            resetStagePrices();
                           }
                         }}
                       >
@@ -590,15 +603,19 @@ export default function WOForm() {
                           handleFieldChange("price_per_pipe", "");
                           resetStagePrices();
                         }}
+                        disabled={formData.pipe_type === "Sucker Rod"}
                       >
-                        <SelectTrigger className="border-2 focus:border-blue-500 h-11">
+                        <SelectTrigger className="border-2 focus:border-blue-500 h-11" disabled={formData.pipe_type === "Sucker Rod"}>
                           <SelectValue placeholder="Select price type" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="Fixed">Fixed</SelectItem>
-                          <SelectItem value="Stage Based">Stage Based</SelectItem>
+                          {formData.pipe_type !== "Sucker Rod" && <SelectItem value="Stage Based">Stage Based</SelectItem>}
                         </SelectContent>
                       </Select>
+                      {formData.pipe_type === "Sucker Rod" && (
+                        <p className="text-xs text-muted-foreground">Price Type locked to Fixed for Sucker Rod</p>
+                      )}
                       <p className="text-xs text-blue-600 font-medium">Используйте точку (.) для десятичных значений</p>
                     </div>
                   </div>

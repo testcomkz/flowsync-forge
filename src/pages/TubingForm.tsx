@@ -42,6 +42,7 @@ export default function TubingForm() {
   const { user } = useAuth();
   const { sharePointService, isConnected, refreshDataInBackground } = useSharePoint();
   const { clients, workOrders: cachedWorkOrders, tubingData: cachedTubingData } = useSharePointInstantData();
+  const [closedWOs, setClosedWOs] = useState<Set<string>>(new Set());
   const { toast } = useToast();
 
   // Мгновенная загрузка из кеша - всегда используем кешированные данные
@@ -57,6 +58,7 @@ export default function TubingForm() {
   useEffect(() => {
     if (!formData.client) {
       setAvailableWorkOrders([]);
+      setClosedWOs(new Set());
       return;
     }
 
@@ -68,8 +70,13 @@ export default function TubingForm() {
         const headers = cachedWorkOrders[0];
         const clientIndex = headers.findIndex((h: string) => h && h.toLowerCase().includes('client'));
         const woIndex = headers.findIndex((h: string) => h && h.toLowerCase().includes('wo'));
+        const statusIndex = headers.findIndex((h: string) => h && /wo[_\s-]*status|status/i.test(String(h)));
         
         if (clientIndex !== -1 && woIndex !== -1) {
+          const clientRows = cachedWorkOrders
+            .slice(1)
+            .filter(row => String(row[clientIndex]).trim() === String(formData.client).trim());
+
           let clientWorkOrders = Array.from(new Set(
             cachedWorkOrders
               .slice(1)
@@ -77,6 +84,17 @@ export default function TubingForm() {
               .map(row => String(row[woIndex]).trim())
               .filter(wo => !!wo)
           ));
+
+          // Build closed set
+          const closed = new Set<string>();
+          if (statusIndex !== -1) {
+            clientRows.forEach(row => {
+              const wo = String(row[woIndex]).trim();
+              const status = String(row[statusIndex] ?? '').toLowerCase();
+              if (wo && status.includes('closed')) closed.add(wo);
+            });
+          }
+          setClosedWOs(closed);
           // Сохраняем выбранный WO в списке (Radix Select требует наличие item для отображения value)
           if (formData.wo_no && !clientWorkOrders.includes(String(formData.wo_no).trim())) {
             clientWorkOrders = [String(formData.wo_no).trim(), ...clientWorkOrders];
@@ -557,11 +575,14 @@ export default function TubingForm() {
                       <SelectValue placeholder="Select work order" />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableWorkOrders.map((wo) => (
-                        <SelectItem key={wo} value={wo}>
-                          {wo}
-                        </SelectItem>
-                      ))}
+                      {availableWorkOrders.map((wo) => {
+                        const isClosed = closedWOs.has(String(wo).trim());
+                        return (
+                          <SelectItem key={wo} value={wo} disabled={isClosed}>
+                            {wo}{isClosed ? ' (Closed)' : ''}
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 </div>
